@@ -1,7 +1,7 @@
 import { Fragment, useState, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { api, connectWebSocket } from '../lib/api';
+import { api, connectWebSocket, mediaUrl } from '../lib/api';
 import { SETOR_QUADRO, SECOES_QUADRO, secaoDoVeiculoQuadro } from '../lib/quadro';
 import { veiculoNumero, textoAguardandoPecaPendente, textoInsumoExibicao, formatInsumoCodigo, nomeProfissionalSolicitouPeca, nomeCompletoProfissionalSolicitouPeca } from '../lib/servico';
 import {
@@ -64,7 +64,7 @@ function CampoOQueFoiFeito({ servico }: { servico: Servico }) {
       </div>
       <p className="mt-1 text-white whitespace-pre-wrap break-words">{exibir}</p>
       {servico.correcaoAudio && (
-        <audio controls src={servico.correcaoAudio} className="mt-2 w-full max-w-md" />
+        <audio controls src={mediaUrl(servico.correcaoAudio)} className="mt-2 w-full max-w-md" />
       )}
     </div>
   );
@@ -1102,10 +1102,10 @@ export default function AdminPage() {
                                 {(s.fotoAntes || s.fotoDepois) && (
                                   <div className="col-span-2 flex gap-4">
                                     {s.fotoAntes && (
-                                      <img src={s.fotoAntes} alt="Antes" className="h-24 rounded" />
+                                      <img src={mediaUrl(s.fotoAntes)} alt="Antes" className="h-24 rounded" />
                                     )}
                                     {s.fotoDepois && (
-                                      <img src={s.fotoDepois} alt="Depois" className="h-24 rounded" />
+                                      <img src={mediaUrl(s.fotoDepois)} alt="Depois" className="h-24 rounded" />
                                     )}
                                   </div>
                                 )}

@@ -18,7 +18,13 @@ const app = express();
 const server = createServer(app);
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
+const frontendOrigins = process.env.FRONTEND_URL?.split(',').map((s) => s.trim()).filter(Boolean);
+app.use(
+  cors({
+    origin: frontendOrigins?.length ? frontendOrigins : true,
+    credentials: true,
+  }),
+);
 app.use(express.json());
 
 const uploadDir = process.env.UPLOAD_DIR || './uploads';

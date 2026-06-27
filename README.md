@@ -131,6 +131,39 @@ npm run deploy:logs    # acompanhar logs
 npm run deploy:down    # parar containers
 ```
 
+## Deploy na Vercel (frontend)
+
+A Vercel hospeda o **frontend** (React). A **API**, **WebSocket**, **PostgreSQL** e **uploads** ficam no [Render](https://render.com) (arquivo `render.yaml` incluído).
+
+### 1. Backend + banco (Render)
+
+1. Suba o código no GitHub.
+2. [Render Dashboard](https://dashboard.render.com) → **New** → **Blueprint** → selecione o repositório.
+3. Após o deploy, copie a URL da API (ex.: `https://quadro-api.onrender.com`).
+4. No serviço **quadro-api**, defina a variável `FRONTEND_URL` com a URL da Vercel (ex.: `https://seu-app.vercel.app`).
+5. Rode o seed mínimo (Render Shell ou local com `DATABASE_URL` de produção):
+   ```bash
+   npx tsx prisma/seed-min.ts
+   ```
+
+### 2. Frontend (Vercel)
+
+1. [vercel.com/new](https://vercel.com/new) → importe o repositório GitHub.
+2. **Root Directory:** deixe a raiz do repo (usa `vercel.json` na raiz) **ou** defina `frontend` como root.
+3. Variáveis de ambiente:
+
+| Variável | Exemplo |
+|----------|---------|
+| `VITE_API_URL` | `https://quadro-api.onrender.com` |
+| `VITE_WS_URL` | `wss://quadro-api.onrender.com/ws` |
+
+4. **Deploy**.
+
+- **App:** `https://seu-app.vercel.app`
+- **Quadro TV:** `https://seu-app.vercel.app/quadro`
+
+Desenvolvimento local continua sem essas variáveis (proxy do Vite para `localhost:3001`).
+
 Volumes persistentes: `postgres_data` (banco) e `uploads_data` (fotos/áudios).
 
 Para **zerar o banco em produção** (cuidado — apaga tudo):

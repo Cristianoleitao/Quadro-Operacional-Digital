@@ -1,4 +1,7 @@
 import type { Usuario, Servico, Veiculo, Garagem, HistoricoInsumo } from '../types';
+import { getApiBase, getWsUrl } from './config';
+
+export { mediaUrl } from './config';
 
 export interface ParamsHistoricoGerencia {
   dias?: number;
@@ -24,7 +27,7 @@ function qsHistoricoPeriodo(params?: ParamsHistoricoGerencia): URLSearchParams {
   return qs;
 }
 
-const API_BASE = '/api';
+const API_BASE = getApiBase();
 
 function getToken(): string | null {
   return localStorage.getItem('token');
@@ -338,8 +341,7 @@ export function connectWebSocket(onMessage: (type: string, data: unknown) => voi
   const connect = () => {
     if (closed) return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    ws = new WebSocket(getWsUrl());
 
     ws.onopen = () => {
       delay = 3000;
@@ -370,7 +372,7 @@ export function connectWebSocket(onMessage: (type: string, data: unknown) => voi
   const waitForBackend = async () => {
     for (let i = 0; i < 10 && !closed; i++) {
       try {
-        const res = await fetch('/api/health');
+        const res = await fetch(`${API_BASE}/health`);
         if (res.ok) {
           connect();
           return;
