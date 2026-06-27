@@ -1,0 +1,157 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMINISTRADOR
+  GERENCIA
+  PROFISSIONAL
+  ESTOQUE
+}
+
+enum Setor {
+  MEC
+  ELE
+  LANT
+  PINT
+  REFR
+  BORR
+  LIMP
+  OUTRO
+}
+
+model Garagem {
+  id        String   @id @default(uuid())
+  nome      String
+  estado    String
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  usuarios Usuario[]
+  veiculos Veiculo[]
+
+  @@unique([nome, estado])
+}
+
+enum StatusServico {
+  EM_EXECUCAO
+  PARADO_CRITICO
+  AGUARDANDO_INSUMO
+  SERVICO_DEMORADO
+  MANUTENCAO_PREVENTIVA
+  SERVICO_EXTERNO
+  FINALIZADO
+  CONCLUIDO
+}
+
+model Usuario {
+  id            String   @id @default(uuid())
+  nome          String
+  matricula     String   @unique
+  senha         String
+  role          Role
+  setor         Setor?
+  especialidade String?
+  garagemId     String?
+  garagem       Garagem? @relation(fields: [garagemId], references: [id])
+  ativo         Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  servicos            Servico[] @relation("ServicoProfissional")
+  servicosFinalizados Servico[] @relation("ServicoFinalizadoPor")
+  insumosSolicitados  SolicitacaoInsumo[] @relation("InsumoSolicitadoPor")
+  auditorias Auditoria[]
+}
+
+model Veiculo {
+  id           String    @id @default(uuid())
+  numero       String    @unique
+  dataEntrada  DateTime?
+  numeroOs     String?
+  horaSaida    DateTime?
+  garagemId    String?
+  garagem      Garagem?  @relation(fields: [garagemId], references: [id])
+  fechadoAdmin Boolean   @default(false)
+  ativo        Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  servicos      Servico[]
+  ordensServico OrdemServico[]
+}
+
+model OrdemServico {
+  id             String   @id @default(uuid())
+  numero         Int      @unique @default(autoincrement())
+  veiculoId      String
+  veiculo        Veiculo  @relation(fields: [veiculoId], references: [id])
+  dataAbertura   DateTime @default(now())
+  dataFechamento DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  servicos Servico[]
+}
+
+model Servico {
+  id             String         @id @default(uuid())
+  veiculoId      String
+  veiculo        Veiculo        @relation(fields: [veiculoId], references: [id])
+  ordemServicoId String?
+  ordemServico   OrdemServico?  @relation(fields: [ordemServicoId], references: [id])
+  numeroOs       String?
+  horaOs         DateTime?
+  setor          Setor
+  descricao      String
+  localExterno   String?
+  status         StatusServico @default(EM_EXECUCAO)
+  profissionalId String?
+  profissional   Usuario?      @relation("ServicoProfissional", fields: [profissionalId], references: [id])
+  finalizadoPorId String?
+  finalizadoPor   Usuario?      @relation("ServicoFinalizadoPor", fields: [finalizadoPorId], references: [id])
+  horaAssumido   DateTime?
+  horaInicio     DateTime?
+  horaTermino    DateTime?
+  tempoTotalMin  Int?
+  correcao       String?
+  correcaoAudio  String?
+  fotoAntes      String?
+  fotoDepois     String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  insumos SolicitacaoInsumo[]
+}
+
+model SolicitacaoInsumo {
+  id        String   @id @default(uuid())
+  servicoId String
+  servico   Servico  @relation(fields: [servicoId], references: [id])
+  descricao String
+  quantidade Int     @default(1)
+  atendido  Boolean  @default(false)
+  aguardarPeca Boolean @default(false)
+  solicitadoPorId String?
+  solicitadoPor   Usuario? @relation("InsumoSolicitadoPor", fields: [solicitadoPorId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Auditoria {
+  id         String   @id @default(uuid())
+  usuarioId  String?
+  usuario    Usuario? @relation(fields: [usuarioId], references: [id])
+  acao       String
+  entidade   String
+  entidadeId String?
+  detalhes   Json?
+  createdAt  DateTime @default(now())
+}
+

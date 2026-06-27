@@ -1,0 +1,29 @@
+{
+  "name": "quadro-operacional-digital",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "build": "npm run build -w backend && npm run build -w frontend",
+    "check": "npm run build -w backend && npm run build -w frontend",
+    "db:migrate": "npm run db:migrate -w backend",
+    "db:migrate:deploy": "npm run db:migrate:deploy -w backend",
+    "db:seed": "npm run db:seed -w backend",
+    "db:seed:min": "npm run db:seed:min -w backend",
+    "db:reset": "npm run db:reset -w backend",
+    "deploy:up": "docker compose -f docker-compose.prod.yml --env-file .env up -d --build",
+    "deploy:down": "docker compose -f docker-compose.prod.yml down",
+    "deploy:logs": "docker compose -f docker-compose.prod.yml logs -f"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.8.0",
+    "prisma": "^7.8.0"
+  }
+}
