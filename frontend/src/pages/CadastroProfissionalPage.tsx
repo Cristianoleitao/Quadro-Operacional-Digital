@@ -13,7 +13,7 @@ import {
   type SetorCadastro,
   type TipoCadastro,
 } from '../types';
-import { useAuth } from '../context/AuthContext';
+import { getApiOrigin } from '../lib/config';
 
 export default function CadastroProfissionalPage() {
   const { login } = useAuth();
@@ -34,11 +34,29 @@ export default function CadastroProfissionalPage() {
   const exigeGaragem = tipo === 'PROFISSIONAL' && setorCadastroExigeGaragem(setor);
 
   useEffect(() => {
-    api.getGaragens().then((lista) => {
-      setGaragens(lista);
-      if (lista.length > 0) setGaragemId(lista[0].id);
-    }).catch(() => setErro('Não foi possível carregar as garagens'));
-  }, []);
+    const emProducao = !['localhost', '127.0.0.1'].includes(window.location.hostname);
+    if (emProducao && !getApiOrigin()) {
+      setErro(
+        'API não configurada. Na Vercel, defina VITE_API_URL (URL do Render) e faça redeploy.',
+      );
+      return;
+    }
+
+    api.getGaragens()
+      .then((lista) => {
+        setGaragens(lista);
+        if (lista.length > 0) setGaragemId(lista[0].id);
+        else if (exigeGaragem) {
+          setErro('Nenhuma garagem no banco. Rode o seed no Render ou cadastre via admin.');
+        }
+      })
+      .catch(() => {
+        const origemApi = getApiOrigin() || window.location.origin;
+        setErro(
+          `Não foi possível carregar as garagens. Verifique se a API está no ar: ${origemApi}/api/health`,
+        );
+      });
+  }, [exigeGaragem]);
 
   const classeSelectSetor = (s: SetorCadastro) => {
     if (s === 'APONTADOR' || s === 'ESTOQUE') return SETOR_CORES.OUTRO.select;
