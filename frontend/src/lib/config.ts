@@ -1,6 +1,8 @@
 /** URL pública do backend (ex.: https://seu-api.onrender.com). Vazio = proxy local / mesma origem. */
 export function getApiOrigin(): string {
-  return (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '';
+  const raw = (import.meta.env.VITE_API_URL as string | undefined)?.trim() ?? '';
+  if (!raw) return '';
+  return raw.replace(/\/+$/, '').replace(/\/api$/i, '');
 }
 
 export function getApiBase(): string {
