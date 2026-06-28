@@ -14,6 +14,7 @@ import {
   type TipoCadastro,
 } from '../types';
 import { getApiOrigin } from '../lib/config';
+import { useAuth } from '../context/AuthContext';
 
 export default function CadastroProfissionalPage() {
   const { login } = useAuth();
