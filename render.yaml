@@ -1,5 +1,6 @@
-# Backend + PostgreSQL para usar com frontend na Vercel
-# Deploy: https://render.com → New → Blueprint → conectar repo
+# Backend para frontend na Vercel
+# Blueprint: New → Blueprint → conectar repo
+# Se já tiver Postgres no Render (free = 1 banco), preencha DATABASE_URL manualmente no dashboard.
 services:
   - type: web
     name: quadro-api
@@ -10,22 +11,12 @@ services:
     healthCheckPath: /api/health
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: quadro-db
-          property: connectionString
+        sync: false
       - key: JWT_SECRET
         generateValue: true
-      - key: PORT
-        value: 3001
       - key: UPLOAD_DIR
         value: /app/uploads
       - key: FRONTEND_URL
         sync: false
       - key: SAIDA_VEICULOS_MOCK
         value: "true"
-
-databases:
-  - name: quadro-db
-    plan: free
-    databaseName: quadro_operacional
-    user: quadro
