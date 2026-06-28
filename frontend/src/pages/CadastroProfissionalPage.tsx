@@ -54,7 +54,7 @@ export default function CadastroProfissionalPage() {
       .catch(() => {
         const origemApi = getApiOrigin() || window.location.origin;
         setErro(
-          `Não foi possível carregar as garagens. Verifique se a API está no ar: ${origemApi}/api/health`,
+          `Não foi possível carregar as garagens. Confira ${origemApi}/api/health no navegador (API pode demorar ~30s na 1ª vez). Se o health ok, no Render defina FRONTEND_URL=${window.location.origin} e redeploy a API.`,
         );
       });
   }, [exigeGaragem]);

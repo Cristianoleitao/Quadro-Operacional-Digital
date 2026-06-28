@@ -19,9 +19,21 @@ const server = createServer(app);
 const PORT = process.env.PORT || 3001;
 
 const frontendOrigins = process.env.FRONTEND_URL?.split(',').map((s) => s.trim()).filter(Boolean);
+const vercelOrigin = /^https:\/\/[\w.-]+\.vercel\.app$/;
+
+function isAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin) return true;
+  if (frontendOrigins?.includes(origin)) return true;
+  if (vercelOrigin.test(origin)) return true;
+  return !frontendOrigins?.length;
+}
+
 app.use(
   cors({
-    origin: frontendOrigins?.length ? frontendOrigins : true,
+    origin(origin, callback) {
+      if (isAllowedOrigin(origin)) callback(null, true);
+      else callback(null, false);
+    },
     credentials: true,
   }),
 );
