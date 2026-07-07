@@ -5,6 +5,8 @@ import { veiculoNumero, numeroOsExibicao, formatInsumoCodigo } from '../lib/serv
 import { tituloSecaoServico, agruparPorSecao, saidaVeiculoQuadro, idsVeiculosSaidaPrioritariaPorServicos, ordenarServicosPorPrioridadeSaida, ordenarCorretivaProfissional, servicoExibeHoraSaida, mapaServicosPorVeiculo, servicoSujeitoPrazoInicio, infoPrazoInicioProfissional, classeBordaCardPrazoProfissional, type AlertaPrazoVeiculo } from '../lib/quadro';
 import { useAuth } from '../context/AuthContext';
 import { useGravadorAudio } from '../hooks/useGravadorAudio';
+import { InputLocalExternoServico } from '../components/InputLocalExternoServico';
+import { isControler } from '../lib/controler';
 import type { Servico } from '../types';
 import { BadgeSetor } from '../components/BadgeSetor';
 import { HistoricoProfissionalPanel } from '../components/HistoricoProfissionalPanel';
@@ -152,6 +154,7 @@ export default function ProfissionalPage() {
       : null;
 
   const ehSetorLimpeza = usuario?.setor === 'LIMP';
+  const ehControler = isControler(usuario);
 
   const marcarAguardandoPeca = async () => {
     if (!servicoEmExecucao || !aguardandoPeca.trim()) return;
@@ -292,10 +295,16 @@ export default function ProfissionalPage() {
         <div>
           <h1 className="text-xl font-bold text-white">{usuario?.nome}</h1>
           <p className="text-slate-400 text-sm flex items-center gap-1 flex-wrap">
-            {usuario?.especialidade}
-            {usuario?.setor && (
+            {ehControler ? (
+              <span className="text-emerald-400 font-semibold">Controler — Serviços externos</span>
+            ) : (
               <>
-                {' '}— <BadgeSetor setor={usuario.setor} />
+                {usuario?.especialidade}
+                {usuario?.setor && (
+                  <>
+                    {' '}— <BadgeSetor setor={usuario.setor} />
+                  </>
+                )}
               </>
             )}
             {usuario?.garagem?.rotulo && (
@@ -314,7 +323,7 @@ export default function ProfissionalPage() {
           onClick={() => trocarAba('disponiveis')}
           className={`flex-1 py-3 text-sm font-semibold ${aba === 'disponiveis' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400'}`}
         >
-          Disponíveis ({disponiveis.length})
+          {ehControler ? 'Externos' : 'Disponíveis'} ({disponiveis.length})
         </button>
         <button
           onClick={() => trocarAba('execucao')}
@@ -398,6 +407,15 @@ export default function ProfissionalPage() {
                     servico={s}
                     prioridade={prioridadeSaidaIds.has(s.veiculo.id)}
                   />
+                  {ehControler && (
+                    <div className="w-full mt-2" onClick={(e) => e.stopPropagation()}>
+                      <InputLocalExternoServico
+                        servicoId={s.id}
+                        local={s.localExterno}
+                        onAtualizado={carregar}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -440,7 +458,18 @@ export default function ProfissionalPage() {
           </div>
 
           <div className="space-y-2">
-          {!ehSetorLimpeza && (
+          {ehControler && (
+            <div className="p-2 bg-slate-900 rounded border border-emerald-800/60">
+              <p className="text-slate-400 text-xs font-semibold mb-1">Local do serviço externo</p>
+              <InputLocalExternoServico
+                servicoId={servicoEmExecucao.id}
+                local={servicoEmExecucao.localExterno}
+                onAtualizado={carregar}
+              />
+            </div>
+          )}
+
+          {!ehSetorLimpeza && !ehControler && (
           <div className="p-2 bg-slate-900 rounded border border-slate-700">
             <p className="text-slate-400 text-xs font-semibold mb-1">Aguardando peça</p>
             <form
@@ -467,7 +496,7 @@ export default function ProfissionalPage() {
           </div>
           )}
 
-          {!ehSetorLimpeza && (
+          {!ehSetorLimpeza && !ehControler && (
           <div className="p-2 bg-slate-900 rounded border border-slate-700">
             <p className="text-slate-400 text-xs font-semibold mb-1">Solicitação de insumo</p>
             <form

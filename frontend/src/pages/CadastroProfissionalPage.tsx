@@ -61,6 +61,7 @@ export default function CadastroProfissionalPage() {
 
   const classeSelectSetor = (s: SetorCadastro) => {
     if (s === 'APONTADOR' || s === 'ESTOQUE') return SETOR_CORES.OUTRO.select;
+    if (s === 'CONTROLER') return 'text-emerald-400';
     return SETOR_CORES[s].select;
   };
 
@@ -149,7 +150,7 @@ export default function CadastroProfissionalPage() {
               value={matricula}
               onChange={(e) => setMatricula(e.target.value.toUpperCase())}
               className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 uppercase font-mono"
-              placeholder={tipo === 'GERENCIA' ? 'GER002' : setor === 'APONTADOR' ? 'ADM002' : setor === 'ESTOQUE' ? 'EST002' : 'MEC002'}
+              placeholder={tipo === 'GERENCIA' ? 'GER002' : setor === 'APONTADOR' ? 'ADM002' : setor === 'ESTOQUE' ? 'EST002' : setor === 'CONTROLER' ? 'CTR002' : 'MEC002'}
               required
             />
           </div>

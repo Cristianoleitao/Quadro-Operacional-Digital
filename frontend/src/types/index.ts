@@ -11,8 +11,8 @@ export const TIPOS_CADASTRO: TipoCadastro[] = ['PROFISSIONAL', 'GERENCIA'];
 
 export type Setor = 'MEC' | 'ELE' | 'LANT' | 'PINT' | 'REFR' | 'BORR' | 'LIMP' | 'OUTRO';
 
-/** Setores no cadastro; Apontador e Estoque definem o perfil de acesso. */
-export type SetorCadastro = Setor | 'APONTADOR' | 'ESTOQUE';
+/** Setores no cadastro; Apontador, Estoque e Controler definem o perfil de acesso. */
+export type SetorCadastro = Setor | 'APONTADOR' | 'ESTOQUE' | 'CONTROLER';
 
 export type StatusServico =
   | 'EM_EXECUCAO'
@@ -196,6 +196,7 @@ export const SETORES_CADASTRO: SetorCadastro[] = [
   'REFR',
   'BORR',
   'LIMP',
+  'CONTROLER',
   'APONTADOR',
   'ESTOQUE',
 ];
@@ -203,11 +204,12 @@ export const SETORES_CADASTRO: SetorCadastro[] = [
 export function labelSetorCadastro(setor: SetorCadastro): string {
   if (setor === 'APONTADOR') return 'Apontador — Administrador';
   if (setor === 'ESTOQUE') return 'Estoque';
+  if (setor === 'CONTROLER') return 'Controler — Serviços externos';
   return `${SETOR_PREFIX[setor]} ${SETOR_LABELS[setor]}`;
 }
 
 export function setorCadastroExigeGaragem(setor: SetorCadastro): boolean {
-  return setor !== 'APONTADOR' && setor !== 'ESTOQUE';
+  return setor !== 'APONTADOR' && setor !== 'ESTOQUE' && setor !== 'CONTROLER';
 }
 
 export function destinoPosCadastro(tipo: TipoCadastro, setor?: SetorCadastro): string {

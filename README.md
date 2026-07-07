@@ -61,6 +61,7 @@ npm run db:seed:min
 | PINT001   | Profissional  | Pintura      |
 | REFR001   | Profissional  | Refrigeração |
 | BORR001   | Profissional  | Borracharia  |
+| CTR001    | Controler     | Serviços externos (todas as garagens) |
 
 ## Telas
 

@@ -9,6 +9,7 @@ import { auditLog } from '../middleware/audit';
 import { broadcast } from '../lib/websocket';
 import { garantirSaidasAtualizadas, anexarHoraSaidaVeiculos } from '../lib/saidaVeiculos';
 import { enriquecerVeiculosLista } from '../lib/veiculoEnriquecimento';
+import { isControler } from '../lib/controler';
 // import { garantirServicoLimpezaVeiculo } from '../lib/servicoLimpeza';
 
 const router = Router();
@@ -489,15 +490,17 @@ router.get('/meus', async (req: AuthRequest, res: Response) => {
 
   const usuario = await prisma.usuario.findUnique({
     where: { id: user.id },
-    select: { setor: true, garagemId: true },
+    select: { setor: true, garagemId: true, especialidade: true },
   });
 
+  const controler = isControler(usuario);
+
   const where: Record<string, unknown> = {
-    status: { in: STATUS_PROFISSIONAL_ATIVO },
     profissionalId: null,
+    status: controler ? StatusServico.SERVICO_EXTERNO : { in: STATUS_PROFISSIONAL_ATIVO },
   };
 
-  if (user.role === Role.PROFISSIONAL && usuario?.setor) {
+  if (user.role === Role.PROFISSIONAL && usuario?.setor && !controler) {
     where.setor = usuario.setor;
   }
 
@@ -515,10 +518,18 @@ router.get('/meus', async (req: AuthRequest, res: Response) => {
 });
 
 router.get('/em-execucao', async (req: AuthRequest, res: Response) => {
+  const usuario = await prisma.usuario.findUnique({
+    where: { id: req.user!.id },
+    select: { especialidade: true },
+  });
+  const controler = isControler(usuario);
+
   const servicos = await prisma.servico.findMany({
     where: {
       profissionalId: req.user!.id,
-      status: { in: STATUS_PROFISSIONAL_ATIVO },
+      status: controler
+        ? StatusServico.SERVICO_EXTERNO
+        : { in: STATUS_PROFISSIONAL_ATIVO },
     },
     include: servicoInclude,
     orderBy: { horaAssumido: 'asc' },
@@ -777,6 +788,12 @@ router.patch(
 );
 
 router.post('/:id/assumir', requireRole(Role.PROFISSIONAL), async (req: AuthRequest, res: Response) => {
+  const usuario = await prisma.usuario.findUnique({
+    where: { id: req.user!.id },
+    select: { especialidade: true },
+  });
+  const controler = isControler(usuario);
+
   const servico = await prisma.servico.findUnique({
     where: { id: paramId(req.params.id) },
     include: { profissional: true },
@@ -787,9 +804,11 @@ router.post('/:id/assumir', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
   if (servico.status === StatusServico.FINALIZADO || servico.status === StatusServico.CONCLUIDO) {
     return res.status(400).json({ error: 'Serviço já finalizado' });
   }
-  if (
-    !STATUS_PROFISSIONAL_ATIVO.includes(servico.status)
-  ) {
+  if (controler) {
+    if (servico.status !== StatusServico.SERVICO_EXTERNO) {
+      return res.status(400).json({ error: 'Controler só assume serviços externos' });
+    }
+  } else if (!STATUS_PROFISSIONAL_ATIVO.includes(servico.status)) {
     return res.status(400).json({ error: 'Só é possível assumir serviços disponíveis para execução' });
   }
 
@@ -905,11 +924,21 @@ router.patch('/:id/status', requireRole(Role.ADMINISTRADOR), async (req: AuthReq
 
 router.patch(
   '/:id/local-externo',
-  requireRole(Role.ADMINISTRADOR),
+  requireRole(Role.ADMINISTRADOR, Role.PROFISSIONAL),
   async (req: AuthRequest, res: Response) => {
     try {
       const id = paramId(req.params.id);
       const { local } = localExternoSchema.parse(req.body);
+
+      if (req.user!.role === Role.PROFISSIONAL) {
+        const usuario = await prisma.usuario.findUnique({
+          where: { id: req.user!.id },
+          select: { especialidade: true },
+        });
+        if (!isControler(usuario)) {
+          return res.status(403).json({ error: 'Sem permissão para alterar local externo' });
+        }
+      }
 
       const servico = await prisma.servico.findUnique({ where: { id } });
       if (!servico) return res.status(404).json({ error: 'Serviço não encontrado' });
@@ -1107,6 +1136,9 @@ router.post('/:id/finalizar', requireRole(Role.PROFISSIONAL), async (req: AuthRe
 
     const servico = await prisma.servico.findUnique({ where: { id: paramId(req.params.id) } });
     if (!servico) return res.status(404).json({ error: 'Serviço não encontrado' });
+    if (servico.profissionalId !== req.user!.id) {
+      return res.status(403).json({ error: 'Serviço não está em sua execução' });
+    }
 
     const tempoTotalMin = servico.horaInicio
       ? Math.round((agora.getTime() - servico.horaInicio.getTime()) / 60000)

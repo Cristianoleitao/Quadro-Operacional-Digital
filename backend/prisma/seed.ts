@@ -60,16 +60,26 @@ async function main() {
     { nome: 'Ana Costa', matricula: 'REFR001', setor: Setor.REFR, especialidade: 'Técnico Refrigeração', garagemId: garagemCeara.id },
     { nome: 'Luiz Ferreira', matricula: 'BORR001', setor: Setor.BORR, especialidade: 'Borracheiro', garagemId: garagemCeara.id },
     { nome: 'Fernanda Lima', matricula: 'LIMP001', setor: Setor.LIMP, especialidade: 'Limpeza', garagemId: garagemCuricica.id },
+    { nome: 'Controler', matricula: 'CTR001', setor: null, especialidade: 'Controler', garagemId: null },
   ];
 
   for (const prof of profissionais) {
     await prisma.usuario.upsert({
       where: { matricula: prof.matricula },
-      update: { garagemId: prof.garagemId, setor: prof.setor },
+      update: {
+        garagemId: prof.garagemId,
+        setor: prof.setor,
+        especialidade: prof.especialidade,
+        nome: prof.nome,
+      },
       create: {
-        ...prof,
+        nome: prof.nome,
+        matricula: prof.matricula,
         senha: senhaHash,
         role: Role.PROFISSIONAL,
+        setor: prof.setor,
+        especialidade: prof.especialidade,
+        garagemId: prof.garagemId,
       },
     });
   }

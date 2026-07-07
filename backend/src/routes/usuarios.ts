@@ -13,6 +13,7 @@ const setorCadastroSchema = z.union([
   z.nativeEnum(Setor),
   z.literal('APONTADOR'),
   z.literal('ESTOQUE'),
+  z.literal('CONTROLER'),
 ]);
 
 const cadastroUsuarioSchema = z
@@ -32,7 +33,7 @@ const cadastroUsuarioSchema = z
       return;
     }
 
-    const exigeGaragem = data.setor !== 'APONTADOR' && data.setor !== 'ESTOQUE';
+    const exigeGaragem = data.setor !== 'APONTADOR' && data.setor !== 'ESTOQUE' && data.setor !== 'CONTROLER';
     if (exigeGaragem && !data.garagemId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -73,6 +74,14 @@ function mapearCadastro(dados: DadosCadastro): {
       role: Role.ESTOQUE,
       setor: null,
       especialidade: 'Estoque',
+      garagemId: dados.garagemId ?? null,
+    };
+  }
+  if (setor === 'CONTROLER') {
+    return {
+      role: Role.PROFISSIONAL,
+      setor: null,
+      especialidade: 'Controler',
       garagemId: dados.garagemId ?? null,
     };
   }
