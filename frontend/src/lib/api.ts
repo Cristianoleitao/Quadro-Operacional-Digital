@@ -172,6 +172,9 @@ export const api = {
 
   getEmExecucao: () => request<Servico[]>('/servicos/em-execucao'),
 
+  getMeuHistoricoProfissional: (dias = 30) =>
+    request<Servico[]>(`/servicos/meu-historico?dias=${dias}`),
+
   getAcompanhamento: () => request<Servico[]>('/servicos/acompanhamento'),
 
   getServicosEstoque: () => request<Servico[]>('/servicos/estoque'),

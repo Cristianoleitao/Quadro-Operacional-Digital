@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { useGravadorAudio } from '../hooks/useGravadorAudio';
 import type { Servico } from '../types';
 import { BadgeSetor } from '../components/BadgeSetor';
+import { HistoricoProfissionalPanel } from '../components/HistoricoProfissionalPanel';
 
 function BadgeSaidaServico({
   servico,
@@ -87,12 +88,14 @@ export default function ProfissionalPage() {
   const [insumoCodigo, setInsumoCodigo] = useState('');
   const [insumoQtd, setInsumoQtd] = useState('1');
   const [loading, setLoading] = useState(false);
+  const [versaoLista, setVersaoLista] = useState(0);
   const gravador = useGravadorAudio();
 
   const carregar = useCallback(async () => {
     const [disp, exec] = await Promise.all([api.getMeusServicos(), api.getEmExecucao()]);
     setDisponiveis(disp);
     setEmExecucao(exec);
+    setVersaoLista((v) => v + 1);
   }, []);
 
   useEffect(() => {
@@ -417,6 +420,8 @@ export default function ProfissionalPage() {
         {gruposSecao.length === 0 && (
           <p className="text-center text-slate-500 py-12">Nenhum serviço nesta aba</p>
         )}
+
+        <HistoricoProfissionalPanel versaoAtualizacao={versaoLista} />
       </main>
 
       {servicoEmExecucao && (

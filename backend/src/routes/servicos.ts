@@ -526,6 +526,27 @@ router.get('/em-execucao', async (req: AuthRequest, res: Response) => {
   res.json(await enriquecerVeiculosLista(await anexarHoraSaidaVeiculos(servicos)));
 });
 
+router.get('/meu-historico', requireRole(Role.PROFISSIONAL), async (req: AuthRequest, res: Response) => {
+  const diasParam = Number(req.query.dias ?? 30);
+  const dias = Number.isFinite(diasParam) && diasParam > 0 ? Math.min(diasParam, 90) : 30;
+  const desde = new Date();
+  desde.setDate(desde.getDate() - dias);
+  desde.setHours(0, 0, 0, 0);
+
+  const servicos = await prisma.servico.findMany({
+    where: {
+      finalizadoPorId: req.user!.id,
+      status: { in: [StatusServico.FINALIZADO, StatusServico.CONCLUIDO] },
+      horaTermino: { gte: desde },
+    },
+    include: servicoInclude,
+    orderBy: { horaTermino: 'desc' },
+    take: 100,
+  });
+
+  res.json(await enriquecerVeiculosLista(servicos));
+});
+
 router.get('/acompanhamento', requireRole(Role.ADMINISTRADOR), async (_req, res: Response) => {
   const servicos = await prisma.servico.findMany({
     where: {
