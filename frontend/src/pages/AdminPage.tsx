@@ -35,13 +35,14 @@ function textoOQueFoiFeito(s: Servico): string {
 
 function CampoOQueFoiFeito({ servico }: { servico: Servico }) {
   const [copiado, setCopiado] = useState(false);
+  const transcricao = servico.correcao?.trim() ?? '';
   const texto = textoOQueFoiFeito(servico);
-  const exibir = texto || '—';
+  const exibir = transcricao || texto || '—';
 
   const copiar = async () => {
-    if (!texto) return;
+    if (!exibir || exibir === '—') return;
     try {
-      await navigator.clipboard.writeText(texto);
+      await navigator.clipboard.writeText(exibir);
       setCopiado(true);
       window.setTimeout(() => setCopiado(false), 2000);
     } catch {
@@ -55,7 +56,7 @@ function CampoOQueFoiFeito({ servico }: { servico: Servico }) {
         <strong>O que foi feito:</strong>
         <button
           type="button"
-          disabled={!texto}
+          disabled={!transcricao && !texto}
           onClick={copiar}
           className="text-xs font-semibold text-blue-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
         >
@@ -63,8 +64,13 @@ function CampoOQueFoiFeito({ servico }: { servico: Servico }) {
         </button>
       </div>
       <p className="mt-1 text-white whitespace-pre-wrap break-words">{exibir}</p>
-      {servico.correcaoAudio && (
-        <audio controls src={mediaUrl(servico.correcaoAudio)} className="mt-2 w-full max-w-md" />
+      {servico.correcaoAudio && !transcricao && (
+        <>
+          <p className="mt-2 text-yellow-400 text-xs">
+            Transcrição indisponível neste registro — ouça a gravação:
+          </p>
+          <audio controls src={mediaUrl(servico.correcaoAudio)} className="mt-1 w-full max-w-md" />
+        </>
       )}
     </div>
   );

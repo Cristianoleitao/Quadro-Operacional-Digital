@@ -196,7 +196,9 @@ export default function ProfissionalPage() {
 
   const toggleGravacao = async () => {
     if (gravador.gravando) {
-      gravador.parar();
+      await gravador.parar();
+      const transcrito = gravador.getTexto().trim();
+      if (transcrito) setCorrecao(transcrito.toUpperCase());
     } else {
       try {
         await gravador.iniciar();
@@ -207,8 +209,11 @@ export default function ProfissionalPage() {
   };
 
   const finalizar = async () => {
-    if (!servicoEmExecucao || !correcao.trim()) {
-      alert('Informe a correção executada (texto ou áudio)');
+    if (gravador.gravando) await gravador.parar();
+
+    const textoCorrecao = (correcao.trim() || gravador.getTexto().trim()).toUpperCase();
+    if (!servicoEmExecucao || !textoCorrecao) {
+      alert('Informe a correção executada (aguarde a transcrição ou digite no campo)');
       return;
     }
     setLoading(true);
@@ -219,7 +224,7 @@ export default function ProfissionalPage() {
         correcaoAudio = url;
       }
       await api.finalizarServico(servicoEmExecucao.id, {
-        correcao: correcao.trim().toUpperCase(),
+        correcao: textoCorrecao,
         correcaoAudio,
       });
       setSelecionado(null);
@@ -516,7 +521,7 @@ export default function ProfissionalPage() {
             </button>
             {!gravador.suportaVoz && (
               <p className="text-yellow-400 text-[10px] mb-1 leading-tight">
-                Transcrição indisponível — digite abaixo
+                Transcrição automática indisponível neste navegador — digite a correção no campo abaixo
               </p>
             )}
             <textarea
@@ -537,7 +542,11 @@ export default function ProfissionalPage() {
             )}
             <button
               type="submit"
-              disabled={loading || !correcao.trim()}
+              disabled={
+                loading ||
+                gravador.gravando ||
+                !(correcao.trim() || gravador.texto.trim())
+              }
               className="w-full mt-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-2 rounded text-sm"
             >
               FINALIZAR SERVIÇO
