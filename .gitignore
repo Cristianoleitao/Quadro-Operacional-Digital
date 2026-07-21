@@ -1,5 +1,7 @@
 node_modules/
 dist/
+docs/
+scripts/
 .env
 .env.local
 backend/.env
