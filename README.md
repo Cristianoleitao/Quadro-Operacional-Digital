@@ -63,7 +63,7 @@ npm run db:seed:min
 | BORR001   | Profissional  | Borracharia  |
 | CTR001    | Controler     | Serviços externos (todas as garagens) |
 
-## Telas
+## Telas do sistema
 
 | Rota            | Perfil         | Descrição                              |
 |-----------------|----------------|----------------------------------------|
@@ -71,9 +71,52 @@ npm run db:seed:min
 | `/login`        | Todos          | Autenticação                           |
 | `/admin`        | Administrador  | Central de acompanhamento              |
 | `/profissional` | Profissional   | Assumir e executar serviços            |
+| `/estoque`      | Estoque        | Atendimento de peças solicitadas       |
 | `/gerencia`     | Gerência       | Indicadores, histórico e auditoria     |
 
-## Cadastro rápido (Quadro TV)
+### Quadro TV (`/quadro`)
+
+Painel em tela cheia para exibição na oficina. Agrupa os veículos por status e destaca setores com badges coloridos.
+
+![Quadro Operacional Digital — visão TV](print/quadro-tv.png)
+
+### Central de Acompanhamento (`/admin`)
+
+Painel do administrador: acompanha serviços por status, atribui profissionais, finaliza ou exclui OS e usa o **cadastro rápido** na barra inferior.
+
+![Central de Acompanhamento](print/admin-central.png)
+
+Clique em uma linha para abrir os detalhes do serviço (profissional, status, início, correções e insumos).
+
+![Detalhes do serviço no admin](print/admin-detalhes.png)
+
+O cadastro rápido permite incluir veículo, garagem, setor e descrição sem sair da tela (`ENTER` = adicionar).
+
+![Cadastro rápido no admin](print/admin-cadastro.png)
+
+### Profissional (`/profissional`)
+
+O mecânico/eletricista vê os serviços do seu setor em **Disponíveis** e assume o atendimento.
+
+![Serviços disponíveis — Elétrica](print/profissional-disponiveis.png)
+
+Prazos críticos aparecem em destaque (ex.: prazo de 2h estourado ou saída programada).
+
+![Serviços com prazo crítico — Mecânica](print/profissional-prazo.png)
+
+Com o serviço em execução, o profissional pode pausar, marcar aguardando peça, solicitar insumo, gravar áudio/correção e concluir.
+
+![Serviço em execução](print/profissional-execucao.png)
+
+![Solicitação de insumo durante a execução](print/profissional-execucao-insumo.png)
+
+### Estoque (`/estoque`)
+
+Tela para quem atende solicitações de peça. Cada pedido aparece com o veículo e a descrição; ao entregar, use **Marcar como atendido**.
+
+![Tela de estoque — aguardando peça](print/estoque.png)
+
+## Cadastro rápido (Quadro TV / Admin)
 
 1. Informe o número do veículo, setor e descrição
 2. **ENTER** — adiciona serviço à OS em elaboração
@@ -83,12 +126,12 @@ npm run db:seed:min
 
 | Cor     | Status                  |
 |---------|-------------------------|
-| Branco  | Em Execução             |
+| Branco  | Em Execução / Corretiva |
 | Vermelho| Parado Crítico          |
-| Amarelo | Aguardando Insumo       |
+| Amarelo | Aguardando Insumo/Peça  |
 | Roxo    | Serviço Demorado        |
 | Azul    | Manutenção Preventiva   |
-| Verde   | Finalizado              |
+| Verde   | Serviço Externo / Finalizado |
 
 ## Estrutura do projeto
 
@@ -104,6 +147,7 @@ npm run db:seed:min
 │       ├── pages/    # Telas do sistema
 │       ├── context/  # Autenticação
 │       └── lib/      # API client
+├── print/            # Capturas das telas (documentação)
 └── docker-compose.yml
 ```
 
