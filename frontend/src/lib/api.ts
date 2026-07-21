@@ -205,6 +205,15 @@ export const api = {
   assumirServico: (id: string) =>
     request<Servico>(`/servicos/${id}/assumir`, { method: 'POST' }),
 
+  liberarServico: (id: string) =>
+    request<Servico>(`/servicos/${id}/liberar`, { method: 'POST' }),
+
+  pausarServico: (id: string) =>
+    request<Servico>(`/servicos/${id}/pausar`, { method: 'POST' }),
+
+  despausarServico: (id: string) =>
+    request<Servico>(`/servicos/${id}/despausar`, { method: 'POST' }),
+
   atualizarStatus: (id: string, status: string, descricaoPeca?: string) =>
     request<Servico>(`/servicos/${id}/status`, {
       method: 'PATCH',
@@ -243,10 +252,16 @@ export const api = {
     descricao: string,
     alterarStatus = false,
     quantidade = 1,
+    posicao?: string,
   ) =>
     request(`/servicos/${id}/insumos`, {
       method: 'POST',
-      body: JSON.stringify({ descricao, alterarStatus, quantidade }),
+      body: JSON.stringify({
+        descricao,
+        alterarStatus,
+        quantidade,
+        ...(posicao?.trim() ? { posicao: posicao.trim().toUpperCase() } : {}),
+      }),
     }),
 
   atenderInsumo: (insumoId: string) =>

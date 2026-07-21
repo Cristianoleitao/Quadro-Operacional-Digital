@@ -126,7 +126,7 @@ export default function CadastroProfissionalPage() {
               required
             >
               {TIPOS_CADASTRO.map((t) => (
-                <option key={t} value={t} className="text-black">
+                <option key={t} value={t} className="bg-slate-900 text-white">
                   {TIPO_CADASTRO_LABELS[t]}
                 </option>
               ))}
@@ -190,7 +190,7 @@ export default function CadastroProfissionalPage() {
                 required
               >
                 {SETORES_CADASTRO.map((s) => (
-                  <option key={s} value={s} className="text-black">
+                  <option key={s} value={s} className="bg-slate-900 text-white">
                     {labelSetorCadastro(s)}
                   </option>
                 ))}
@@ -208,10 +208,12 @@ export default function CadastroProfissionalPage() {
                 required
               >
                 {garagens.length === 0 && (
-                  <option value="">Nenhuma garagem disponível — contate o administrador</option>
+                  <option value="" className="bg-slate-900 text-white">
+                    Nenhuma garagem disponível — contate o administrador
+                  </option>
                 )}
                 {garagens.map((g) => (
-                  <option key={g.id} value={g.id}>
+                  <option key={g.id} value={g.id} className="bg-slate-900 text-white">
                     {g.rotulo ?? `${g.nome} - ${g.estado}`}
                   </option>
                 ))}

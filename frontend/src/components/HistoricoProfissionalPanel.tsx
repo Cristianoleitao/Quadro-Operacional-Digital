@@ -88,7 +88,7 @@ function DetalheServicoHistorico({ servico }: { servico: Servico }) {
                   key={i.id}
                   className={`bg-slate-900/50 rounded px-2 py-1 ${i.atendido ? 'text-green-400 line-through' : 'text-slate-200'}`}
                 >
-                  {textoInsumoExibicao(i.descricao, i.quantidade ?? 1)}
+                  {textoInsumoExibicao(i.descricao, i.quantidade ?? 1, i.posicao)}
                   {i.atendido ? ' ✓' : ''}
                 </li>
               ))}

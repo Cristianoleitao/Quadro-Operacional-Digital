@@ -3,13 +3,13 @@ import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { api, connectWebSocket, mediaUrl } from '../lib/api';
 import { SETOR_QUADRO, SECOES_QUADRO, secaoDoVeiculoQuadro } from '../lib/quadro';
-import { veiculoNumero, textoAguardandoPecaPendente, textoInsumoExibicao, formatInsumoCodigo, nomeProfissionalSolicitouPeca, nomeCompletoProfissionalSolicitouPeca } from '../lib/servico';
+import { veiculoNumero, textoAguardandoPecaQuadro, textoInsumoExibicao, formatInsumoCodigo, nomeCompletoProfissionalSolicitouPeca, tempoServicoAtivoMin } from '../lib/servico';
 import {
   InputHoraVeiculo,
   InputOsVeiculo,
 } from '../components/DadosVeiculoQuadroInputs';
 import { InputProfissionalServico } from '../components/InputProfissionalServico';
-import { classeBadgeProfissionalSetor, classeNomeSolicitantePeca } from '../components/BadgeSetor';
+import { classeNomeProfissionalServico, classeNomeSolicitantePeca } from '../components/BadgeSetor';
 import { InputLocalExternoServico } from '../components/InputLocalExternoServico';
 import { SelectSetorServico } from '../components/SelectSetorServico';
 import { useAuth } from '../context/AuthContext';
@@ -35,14 +35,14 @@ function textoOQueFoiFeito(s: Servico): string {
 
 function CampoOQueFoiFeito({ servico }: { servico: Servico }) {
   const [copiado, setCopiado] = useState(false);
-  const transcricao = servico.correcao?.trim() ?? '';
   const texto = textoOQueFoiFeito(servico);
-  const exibir = transcricao || texto || '—';
+  const exibir = texto || '—';
+  const temTranscricao = Boolean(servico.correcao?.trim());
 
   const copiar = async () => {
-    if (!exibir || exibir === '—') return;
+    if (!texto) return;
     try {
-      await navigator.clipboard.writeText(exibir);
+      await navigator.clipboard.writeText(texto);
       setCopiado(true);
       window.setTimeout(() => setCopiado(false), 2000);
     } catch {
@@ -56,7 +56,7 @@ function CampoOQueFoiFeito({ servico }: { servico: Servico }) {
         <strong>O que foi feito:</strong>
         <button
           type="button"
-          disabled={!transcricao && !texto}
+          disabled={!texto}
           onClick={copiar}
           className="text-xs font-semibold text-blue-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
         >
@@ -64,7 +64,7 @@ function CampoOQueFoiFeito({ servico }: { servico: Servico }) {
         </button>
       </div>
       <p className="mt-1 text-white whitespace-pre-wrap break-words">{exibir}</p>
-      {servico.correcaoAudio && !transcricao && (
+      {servico.correcaoAudio && !temTranscricao && (
         <>
           <p className="mt-2 text-yellow-400 text-xs">
             Transcrição indisponível neste registro — ouça a gravação:
@@ -82,7 +82,7 @@ function ItemSolicitacaoAdmin({
   aguardarPeca,
   onAtender,
 }: {
-  insumo: { id: string; descricao: string; quantidade?: number; atendido: boolean };
+  insumo: { id: string; descricao: string; quantidade?: number; posicao?: string | null; atendido: boolean };
   servico: Servico;
   aguardarPeca: boolean;
   onAtender: (insumoId: string) => void;
@@ -90,7 +90,7 @@ function ItemSolicitacaoAdmin({
   const [copiado, setCopiado] = useState(false);
   const textoExibir = aguardarPeca
     ? insumo.descricao
-    : textoInsumoExibicao(insumo.descricao, insumo.quantidade ?? 1);
+    : textoInsumoExibicao(insumo.descricao, insumo.quantidade ?? 1, insumo.posicao);
   const podeAtender =
     !insumo.atendido && servico.status !== 'FINALIZADO' && servico.status !== 'CONCLUIDO';
 
@@ -300,25 +300,15 @@ function CelulaVeiculoAdmin({
 }
 
 function CelulaProfissionalAguardandoPeca({ servico }: { servico: Servico }) {
-  const textoPeca = textoAguardandoPecaPendente(servico);
-  const nomeSolicitante = nomeProfissionalSolicitouPeca(servico);
+  const texto = textoAguardandoPecaQuadro(servico);
 
-  if (!textoPeca && !nomeSolicitante) {
+  if (!texto) {
     return <span className="text-slate-500">—</span>;
   }
 
   return (
-    <span className="inline-flex flex-wrap items-center gap-x-1 gap-y-0.5">
-      {textoPeca ? (
-        <span className={classeNomeSolicitantePeca(false, true)} title="Aguardando peça">
-          {textoPeca}
-        </span>
-      ) : null}
-      {nomeSolicitante ? (
-        <span className={classeNomeSolicitantePeca(false, true)} title="Profissional que solicitou a peça">
-          {nomeSolicitante}
-        </span>
-      ) : null}
+    <span className={classeNomeSolicitantePeca(false, true)} title="Aguardando peça">
+      {texto}
     </span>
   );
 }
@@ -411,7 +401,7 @@ function CelulasServicosAgregados({
                   variant="admin"
                   editando={profissionalEditando === s.id}
                   onEditandoChange={(ativo) => onEditarProfissional(ativo ? s.id : null)}
-                  badgeClass={classeBadgeProfissionalSetor(s.setor)}
+                  badgeClass={classeNomeProfissionalServico(s.setor, s.pausadoEm)}
                 />
               )}
             </div>
@@ -422,7 +412,10 @@ function CelulasServicosAgregados({
         <div className="flex flex-col gap-2 tabular-nums">
           {servicos.map((s) => (
             <span key={s.id} className={`whitespace-nowrap ${classeItemServicoAdmin()}`}>
-              {s.tempoTotalMin != null ? `${s.tempoTotalMin} min` : '—'}
+              {(() => {
+                const tempo = tempoServicoAtivoMin(s);
+                return tempo != null ? `${tempo} min` : '—';
+              })()}
             </span>
           ))}
         </div>
@@ -1070,8 +1063,11 @@ export default function AdminPage() {
                                 <div>
                                   <strong>Profissional:</strong>{' '}
                                   {s.status === 'AGUARDANDO_INSUMO'
-                                    ? nomeCompletoProfissionalSolicitouPeca(s) || '—'
-                                    : s.profissional?.nome ?? '—'}
+                                    ? nomeCompletoProfissionalSolicitouPeca(s) ||
+                                      s.finalizadoPor?.nome ||
+                                      s.profissional?.nome ||
+                                      '—'
+                                    : s.finalizadoPor?.nome ?? s.profissional?.nome ?? '—'}
                                 </div>
                                 {s.status === 'SERVICO_EXTERNO' && (
                                   <div>

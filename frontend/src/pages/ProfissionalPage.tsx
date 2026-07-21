@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { api, connectWebSocket } from '../lib/api';
-import { veiculoNumero, numeroOsExibicao, formatInsumoCodigo } from '../lib/servico';
+import { veiculoNumero, numeroOsExibicao, formatInsumoCodigo, servicoPausado } from '../lib/servico';
 import { tituloSecaoServico, agruparPorSecao, saidaVeiculoQuadro, idsVeiculosSaidaPrioritariaPorServicos, ordenarServicosPorPrioridadeSaida, ordenarCorretivaProfissional, servicoExibeHoraSaida, mapaServicosPorVeiculo, servicoSujeitoPrazoInicio, infoPrazoInicioProfissional, classeBordaCardPrazoProfissional, type AlertaPrazoVeiculo } from '../lib/quadro';
 import { useAuth } from '../context/AuthContext';
 import { useGravadorAudio } from '../hooks/useGravadorAudio';
@@ -89,6 +89,7 @@ export default function ProfissionalPage() {
   const [aguardandoPeca, setAguardandoPeca] = useState('');
   const [insumoCodigo, setInsumoCodigo] = useState('');
   const [insumoQtd, setInsumoQtd] = useState('1');
+  const [insumoPosicao, setInsumoPosicao] = useState('');
   const [loading, setLoading] = useState(false);
   const [versaoLista, setVersaoLista] = useState(0);
   const gravador = useGravadorAudio();
@@ -186,9 +187,11 @@ export default function ProfissionalPage() {
         formatInsumoCodigo(insumoCodigo.trim()),
         false,
         quantidade,
+        insumoPosicao.trim() || undefined,
       );
       setInsumoCodigo('');
       setInsumoQtd('1');
+      setInsumoPosicao('');
       const exec = await api.getEmExecucao();
       setEmExecucao(exec);
       const atualizado = exec.find((s) => s.id === servicoEmExecucao.id);
@@ -211,6 +214,42 @@ export default function ProfissionalPage() {
       } catch (err) {
         alert(err instanceof Error ? err.message : 'Erro ao acessar microfone');
       }
+    }
+  };
+
+  const liberarServico = async () => {
+    if (!servicoEmExecucao) return;
+    if (!window.confirm('Sair deste serviço sem concluir? Ele voltará para a fila.')) return;
+    setLoading(true);
+    try {
+      await api.liberarServico(servicoEmExecucao.id);
+      setSelecionado(null);
+      setCorrecao('');
+      gravador.limpar();
+      setAba('disponiveis');
+      await carregar();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const pausarServico = async () => {
+    if (!servicoEmExecucao) return;
+    setLoading(true);
+    try {
+      const atualizado = servicoPausado(servicoEmExecucao)
+        ? await api.despausarServico(servicoEmExecucao.id)
+        : await api.pausarServico(servicoEmExecucao.id);
+      setSelecionado(atualizado);
+      const exec = await api.getEmExecucao();
+      setEmExecucao(exec);
+      await carregar();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -403,6 +442,11 @@ export default function ProfissionalPage() {
                     servicosPorVeiculo={servicosPorVeiculo}
                     agora={agora}
                   />
+                  {aba === 'execucao' && servicoPausado(s) && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-black text-white shrink-0">
+                      PAUSADO
+                    </span>
+                  )}
                   <BadgeSaidaServico
                     servico={s}
                     prioridade={prioridadeSaidaIds.has(s.veiculo.id)}
@@ -451,10 +495,38 @@ export default function ProfissionalPage() {
             <span className="text-sky-300 text-[11px] font-semibold uppercase">
               {tituloSecaoServico(servicoEmExecucao.status)}
             </span>
+            {servicoPausado(servicoEmExecucao) && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-black text-white uppercase">
+                Pausado
+              </span>
+            )}
             <BadgeSaidaServico
               servico={servicoEmExecucao}
               prioridade={prioridadeSaidaIds.has(servicoEmExecucao.veiculo.id)}
             />
+          </div>
+
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            <button
+              type="button"
+              onClick={() => void liberarServico()}
+              disabled={loading}
+              className="flex-1 min-w-[7rem] py-2 rounded text-xs font-semibold bg-slate-700 hover:bg-slate-600 text-white disabled:opacity-50"
+            >
+              Sair do serviço
+            </button>
+            <button
+              type="button"
+              onClick={() => void pausarServico()}
+              disabled={loading}
+              className={`flex-1 min-w-[7rem] py-2 rounded text-xs font-semibold text-white disabled:opacity-50 ${
+                servicoEmExecucao && servicoPausado(servicoEmExecucao)
+                  ? 'bg-emerald-700 hover:bg-emerald-600'
+                  : 'bg-black hover:bg-neutral-800'
+              }`}
+            >
+              {servicoEmExecucao && servicoPausado(servicoEmExecucao) ? 'Retomar' : 'Pausar'}
+            </button>
           </div>
 
           <div className="space-y-2">
@@ -470,7 +542,7 @@ export default function ProfissionalPage() {
           )}
 
           {!ehSetorLimpeza && !ehControler && (
-          <div className="p-2 bg-slate-900 rounded border border-slate-700">
+          <div className={`p-2 bg-slate-900 rounded border border-slate-700 ${servicoPausado(servicoEmExecucao) ? 'opacity-60 pointer-events-none' : ''}`}>
             <p className="text-slate-400 text-xs font-semibold mb-1">Aguardando peça</p>
             <form
               className="flex gap-1.5"
@@ -497,7 +569,7 @@ export default function ProfissionalPage() {
           )}
 
           {!ehSetorLimpeza && !ehControler && (
-          <div className="p-2 bg-slate-900 rounded border border-slate-700">
+          <div className={`p-2 bg-slate-900 rounded border border-slate-700 ${servicoPausado(servicoEmExecucao) ? 'opacity-60 pointer-events-none' : ''}`}>
             <p className="text-slate-400 text-xs font-semibold mb-1">Solicitação de insumo</p>
             <form
               className="flex gap-1.5"
@@ -522,6 +594,15 @@ export default function ProfissionalPage() {
                 aria-label="Quantidade"
                 className="w-14 shrink-0 bg-slate-800 border border-slate-600 rounded px-1.5 py-1.5 text-white text-sm text-center"
               />
+              <input
+                value={insumoPosicao}
+                onChange={(e) => setInsumoPosicao(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                placeholder="Pos."
+                aria-label="Posição da peça"
+                title="Posição da peça (ex.: TD, TE, TDT, TEF)"
+                maxLength={10}
+                className="w-16 shrink-0 bg-slate-800 border border-slate-600 rounded px-1.5 py-1.5 text-white text-sm text-center uppercase"
+              />
               <button
                 type="submit"
                 disabled={loading || !insumoCodigo.trim() || !insumoQtd.trim()}
@@ -534,7 +615,7 @@ export default function ProfissionalPage() {
           )}
 
           <form
-            className="p-2 bg-slate-900 rounded border border-slate-700"
+            className={`p-2 bg-slate-900 rounded border border-slate-700 ${servicoEmExecucao && servicoPausado(servicoEmExecucao) ? 'opacity-60 pointer-events-none' : ''}`}
             onSubmit={(e) => {
               e.preventDefault();
               void finalizar();
@@ -583,7 +664,7 @@ export default function ProfissionalPage() {
               }
               className="w-full mt-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-2 rounded text-sm"
             >
-              FINALIZAR SERVIÇO
+              CONCLUIR SERVIÇO
             </button>
           </form>
           </div>

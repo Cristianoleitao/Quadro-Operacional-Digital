@@ -76,6 +76,7 @@ export interface SolicitacaoInsumo {
   id: string;
   descricao: string;
   quantidade?: number;
+  posicao?: string | null;
   atendido: boolean;
   aguardarPeca?: boolean;
   solicitadoPor?: ProfissionalResumo | null;
@@ -103,6 +104,8 @@ export interface Servico {
   horaInicio?: string | null;
   horaTermino?: string | null;
   tempoTotalMin?: number | null;
+  pausadoEm?: string | null;
+  minutosPausadosAcum?: number;
   correcao?: string | null;
   correcaoAudio?: string | null;
   fotoAntes?: string | null;

@@ -10,6 +10,7 @@ import { broadcast } from '../lib/websocket';
 import { garantirSaidasAtualizadas, anexarHoraSaidaVeiculos } from '../lib/saidaVeiculos';
 import { enriquecerVeiculosLista } from '../lib/veiculoEnriquecimento';
 import { isControler } from '../lib/controler';
+import { encerrarPausaServico, minutosTrabalhadosServico } from '../lib/tempoServico';
 // import { garantirServicoLimpezaVeiculo } from '../lib/servicoLimpeza';
 
 const router = Router();
@@ -601,9 +602,14 @@ router.post(
         servicos.map((s) => {
           const tempoTotalMin =
             s.tempoTotalMin ??
-            (s.horaInicio
-              ? Math.round((agora.getTime() - s.horaInicio.getTime()) / 60000)
-              : 0);
+            minutosTrabalhadosServico(
+              {
+                horaInicio: s.horaInicio,
+                pausadoEm: s.pausadoEm,
+                minutosPausadosAcum: s.minutosPausadosAcum,
+              },
+              agora,
+            );
 
           return prisma.servico.update({
             where: { id: s.id },
@@ -825,11 +831,94 @@ router.post('/:id/assumir', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
       horaAssumido: agora,
       horaInicio: agora,
       status: statusAposAssumir,
+      pausadoEm: null,
+      minutosPausadosAcum: 0,
     },
     include: servicoInclude,
   });
 
   await auditLog(req, 'ASSUMIR', 'Servico', servico.id);
+  broadcast('quadro:update', null);
+  res.json(updated);
+});
+
+router.post('/:id/liberar', requireRole(Role.PROFISSIONAL), async (req: AuthRequest, res: Response) => {
+  const servico = await prisma.servico.findUnique({ where: { id: paramId(req.params.id) } });
+  if (!servico) return res.status(404).json({ error: 'Serviço não encontrado' });
+  if (servico.profissionalId !== req.user!.id) {
+    return res.status(403).json({ error: 'Serviço não está em sua execução' });
+  }
+  if (STATUS_FORA_DO_QUADRO.includes(servico.status)) {
+    return res.status(400).json({ error: 'Serviço já encerrado' });
+  }
+
+  const updated = await prisma.servico.update({
+    where: { id: servico.id },
+    data: {
+      profissionalId: null,
+      horaAssumido: null,
+      horaInicio: null,
+      pausadoEm: null,
+      minutosPausadosAcum: 0,
+    },
+    include: servicoInclude,
+  });
+
+  await auditLog(req, 'LIBERAR', 'Servico', servico.id);
+  broadcast('quadro:update', null);
+  res.json(updated);
+});
+
+router.post('/:id/pausar', requireRole(Role.PROFISSIONAL), async (req: AuthRequest, res: Response) => {
+  const servico = await prisma.servico.findUnique({ where: { id: paramId(req.params.id) } });
+  if (!servico) return res.status(404).json({ error: 'Serviço não encontrado' });
+  if (servico.profissionalId !== req.user!.id) {
+    return res.status(403).json({ error: 'Serviço não está em sua execução' });
+  }
+  if (STATUS_FORA_DO_QUADRO.includes(servico.status)) {
+    return res.status(400).json({ error: 'Serviço já encerrado' });
+  }
+  const podePausar =
+    STATUS_PROFISSIONAL_ATIVO.includes(servico.status) ||
+    servico.status === StatusServico.SERVICO_EXTERNO;
+  if (!podePausar) {
+    return res.status(400).json({ error: 'Serviço não pode ser pausado neste status' });
+  }
+  if (servico.pausadoEm) {
+    return res.status(400).json({ error: 'Serviço já está pausado' });
+  }
+
+  const agora = new Date();
+  const updated = await prisma.servico.update({
+    where: { id: servico.id },
+    data: { pausadoEm: agora },
+    include: servicoInclude,
+  });
+
+  await auditLog(req, 'PAUSAR', 'Servico', servico.id);
+  broadcast('quadro:update', null);
+  res.json(updated);
+});
+
+router.post('/:id/despausar', requireRole(Role.PROFISSIONAL), async (req: AuthRequest, res: Response) => {
+  const servico = await prisma.servico.findUnique({ where: { id: paramId(req.params.id) } });
+  if (!servico) return res.status(404).json({ error: 'Serviço não encontrado' });
+  if (servico.profissionalId !== req.user!.id) {
+    return res.status(403).json({ error: 'Serviço não está em sua execução' });
+  }
+  if (!servico.pausadoEm) {
+    return res.status(400).json({ error: 'Serviço não está pausado' });
+  }
+
+  const agora = new Date();
+  const fimPausa = encerrarPausaServico(servico, agora);
+  const updated = await prisma.servico.update({
+    where: { id: servico.id },
+    data: fimPausa,
+    include: servicoInclude,
+  });
+
+  await auditLog(req, 'DESPAUSAR', 'Servico', servico.id);
   broadcast('quadro:update', null);
   res.json(updated);
 });
@@ -1012,11 +1101,19 @@ const insumoSchema = z.object({
   descricao: z.string().min(1),
   alterarStatus: z.boolean().optional().default(false),
   quantidade: z.coerce.number().int().positive().optional().default(1),
+  posicao: z
+    .string()
+    .trim()
+    .transform((s) => s.toUpperCase())
+    .optional()
+    .refine((s) => !s || /^[A-Z0-9]{1,10}$/.test(s), {
+      message: 'Posição inválida (use códigos como TD, TE, TDT)',
+    }),
 });
 
 router.post('/:id/insumos', requireRole(Role.PROFISSIONAL), async (req: AuthRequest, res: Response) => {
   try {
-    const { descricao, alterarStatus, quantidade } = insumoSchema.parse(req.body);
+    const { descricao, alterarStatus, quantidade, posicao } = insumoSchema.parse(req.body);
     const servicoId = paramId(req.params.id);
 
     const servico = await prisma.servico.findUnique({ where: { id: servicoId } });
@@ -1029,6 +1126,9 @@ router.post('/:id/insumos', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
     if (!STATUS_PROFISSIONAL_ATIVO.includes(servico.status)) {
       return res.status(400).json({ error: 'Serviço não está ativo para solicitação de insumo' });
     }
+    if (servico.pausadoEm) {
+      return res.status(400).json({ error: 'Retome o serviço antes de solicitar insumo' });
+    }
 
     const insumo = await prisma.solicitacaoInsumo.create({
       data: {
@@ -1036,6 +1136,7 @@ router.post('/:id/insumos', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
         descricao,
         aguardarPeca: alterarStatus,
         quantidade: alterarStatus ? 1 : quantidade,
+        posicao: alterarStatus ? null : posicao || null,
         solicitadoPorId: req.user!.id,
       },
       include: {
@@ -1140,9 +1241,15 @@ router.post('/:id/finalizar', requireRole(Role.PROFISSIONAL), async (req: AuthRe
       return res.status(403).json({ error: 'Serviço não está em sua execução' });
     }
 
-    const tempoTotalMin = servico.horaInicio
-      ? Math.round((agora.getTime() - servico.horaInicio.getTime()) / 60000)
-      : 0;
+    const fimPausa = encerrarPausaServico(servico, agora);
+    const tempoTotalMin = minutosTrabalhadosServico(
+      {
+        horaInicio: servico.horaInicio,
+        pausadoEm: null,
+        minutosPausadosAcum: fimPausa.minutosPausadosAcum,
+      },
+      agora,
+    );
 
     const updated = await prisma.servico.update({
       where: { id: paramId(req.params.id) },
@@ -1151,6 +1258,8 @@ router.post('/:id/finalizar', requireRole(Role.PROFISSIONAL), async (req: AuthRe
         status: StatusServico.FINALIZADO,
         horaTermino: agora,
         tempoTotalMin,
+        pausadoEm: null,
+        minutosPausadosAcum: fimPausa.minutosPausadosAcum,
         finalizadoPorId: req.user!.id,
       },
       include: servicoInclude,

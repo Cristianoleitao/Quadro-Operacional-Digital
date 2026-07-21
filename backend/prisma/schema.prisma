@@ -120,6 +120,8 @@ model Servico {
   horaInicio     DateTime?
   horaTermino    DateTime?
   tempoTotalMin  Int?
+  pausadoEm      DateTime?
+  minutosPausadosAcum Int @default(0)
   correcao       String?
   correcaoAudio  String?
   fotoAntes      String?
@@ -136,6 +138,7 @@ model SolicitacaoInsumo {
   servico   Servico  @relation(fields: [servicoId], references: [id])
   descricao String
   quantidade Int     @default(1)
+  posicao    String?
   atendido  Boolean  @default(false)
   aguardarPeca Boolean @default(false)
   solicitadoPorId String?

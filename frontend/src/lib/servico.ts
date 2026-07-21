@@ -29,12 +29,33 @@ function insumosPecaPendentesDoServico(servico: Servico) {
   return (servico.insumos ?? []).filter((i) => i.aguardarPeca && !i.atendido);
 }
 
+/** Garante o prefixo AGUARDANDO na descrição da peça (quadro / admin). */
+export function garantirPrefixoAguardando(descricao: string): string {
+  const texto = descricao.trim().toUpperCase();
+  if (!texto) return '';
+  if (texto.startsWith('AGUARDANDO')) return texto;
+  return `AGUARDANDO ${texto}`;
+}
+
 /** Peças pendentes (aguardarPeca) do próprio serviço — mesma regra da tela ADM. */
 export function textoAguardandoPecaPendente(servico: Servico): string {
   const pendentes = insumosPecaPendentesDoServico(servico)
-    .map((i) => i.descricao.trim())
+    .map((i) => garantirPrefixoAguardando(i.descricao))
     .filter(Boolean);
   return pendentes.join(' / ');
+}
+
+/**
+ * Texto completo para o Quadro TV na seção Aguardando Peça.
+ * Ex.: "AGUARDANDO BOMBA DO ARLA - JOAO"
+ */
+export function textoAguardandoPecaQuadro(servico: Servico): string {
+  const peca = textoAguardandoPecaPendente(servico);
+  const nome = nomeProfissionalSolicitouPeca(servico);
+  if (peca && nome) return `${peca} - ${nome}`;
+  if (peca) return peca;
+  if (nome) return `AGUARDANDO - ${nome}`;
+  return '';
 }
 
 /** Profissional que solicitou peça pendente neste serviço (não propaga para outros do veículo). */
@@ -73,8 +94,30 @@ export function formatInsumoCodigo(valor: string): string {
   return `${prefixo}${numeros.padStart(6, '0')}`;
 }
 
-export function textoInsumoExibicao(descricao: string, quantidade = 1): string {
+export function textoInsumoExibicao(
+  descricao: string,
+  quantidade = 1,
+  posicao?: string | null,
+): string {
   const codigo = formatInsumoCodigo(descricao);
-  if (quantidade <= 1) return codigo;
-  return `${codigo} × ${quantidade}`;
+  const base = quantidade <= 1 ? codigo : `${codigo} × ${quantidade}`;
+  const pos = posicao?.trim().toUpperCase();
+  return pos ? `${base} [${pos}]` : base;
+}
+
+export function servicoPausado(servico: Servico): boolean {
+  return Boolean(servico.pausadoEm);
+}
+
+/** Tempo ativo em minutos (desconta pausas). Usa tempoTotalMin se já finalizado. */
+export function tempoServicoAtivoMin(servico: Servico, agora = new Date()): number | null {
+  if (servico.tempoTotalMin != null) return servico.tempoTotalMin;
+  if (!servico.horaInicio) return null;
+  const inicio = new Date(servico.horaInicio).getTime();
+  let min = Math.round((agora.getTime() - inicio) / 60000);
+  min -= servico.minutosPausadosAcum ?? 0;
+  if (servico.pausadoEm) {
+    min -= Math.round((agora.getTime() - new Date(servico.pausadoEm).getTime()) / 60000);
+  }
+  return Math.max(0, min);
 }

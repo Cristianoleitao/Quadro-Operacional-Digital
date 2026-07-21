@@ -15,8 +15,8 @@ import {
   type LinhaVeiculoQuadro,
   type SecaoQuadro,
 } from '../lib/quadro';
-import { textoAguardandoPecaPendente, nomeProfissionalSolicitouPeca } from '../lib/servico';
-import { ChipSetor, classeBadgeProfissionalSetor, classeNomeSolicitantePeca } from './BadgeSetor';
+import { textoAguardandoPecaQuadro } from '../lib/servico';
+import { ChipSetor, classeNomeProfissionalServico, classeNomeSolicitantePeca } from './BadgeSetor';
 import { primeiroNome } from './InputProfissionalServico';
 
 const COLUNAS = [
@@ -42,9 +42,8 @@ function CelulaServicosLeitura({
       <div className="flex flex-wrap items-start justify-start content-start gap-x-3 gap-y-1.5 w-full text-left">
         {servicos.map((s, i) => {
           const aguardandoPeca = s.status === 'AGUARDANDO_INSUMO';
-          const textoPeca = textoAguardandoPecaPendente(s);
-          const nomeSolicitante = aguardandoPeca ? nomeProfissionalSolicitouPeca(s) : '';
-          const badgeProfissional = classeBadgeProfissionalSetor(s.setor);
+          const textoAguardando = aguardandoPeca ? textoAguardandoPecaQuadro(s) : '';
+          const badgeProfissional = classeNomeProfissionalServico(s.setor, s.pausadoEm);
           const temProfissional = Boolean(s.profissional?.nome);
           const badgeSetorOuProfissional = temProfissional ? (
             <span className={`${badgeProfissional} mr-0.5`}>{primeiroNome(s.profissional!.nome)}</span>
@@ -67,18 +66,11 @@ function CelulaServicosLeitura({
                 {badgeSetorOuProfissional}
                 <span className="break-words text-left">{s.descricao}</span>
                 {aguardandoPeca ? (
-                  <>
-                    {textoPeca ? (
-                      <span className={classeNomeSolicitantePeca(textoClaro)} title="Aguardando peça">
-                        {textoPeca}
-                      </span>
-                    ) : null}
-                    {nomeSolicitante ? (
-                      <span className={classeNomeSolicitantePeca(textoClaro)} title="Profissional que solicitou a peça">
-                        {nomeSolicitante}
-                      </span>
-                    ) : null}
-                  </>
+                  textoAguardando ? (
+                    <span className={classeNomeSolicitantePeca(textoClaro)} title="Aguardando peça">
+                      {textoAguardando}
+                    </span>
+                  ) : null
                 ) : s.status === 'SERVICO_EXTERNO' && s.localExterno?.trim() ? (
                   <span className={badgeProfissional} title="Local do serviço externo">
                     {s.localExterno.trim().toUpperCase()}

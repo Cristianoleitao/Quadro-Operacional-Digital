@@ -26,7 +26,7 @@ export function resumoInsumosServico(servico: Servico): string {
   if (lista.length === 0) return '—';
   return lista
     .map((i) => {
-      const rotulo = textoInsumoExibicao(i.descricao, i.quantidade);
+      const rotulo = textoInsumoExibicao(i.descricao, i.quantidade, i.posicao);
       const tipo = i.aguardarPeca ? 'PEÇA' : 'INS';
       const sit = i.atendido ? 'OK' : 'PEND';
       return `${tipo}:${rotulo}[${sit}]`;
@@ -38,7 +38,7 @@ export function insumosOperacionaisServico(servico: Servico): string {
   const lista = (servico.insumos ?? []).filter((i) => !i.aguardarPeca);
   if (lista.length === 0) return '—';
   return lista
-    .map((i) => `${textoInsumoExibicao(i.descricao, i.quantidade)}${i.atendido ? ' ✓' : ''}`)
+    .map((i) => `${textoInsumoExibicao(i.descricao, i.quantidade, i.posicao)}${i.atendido ? ' ✓' : ''}`)
     .join(' · ');
 }
 
@@ -65,7 +65,7 @@ export function linhasInsumoHistorico(insumos: HistoricoInsumo[]): LinhaInsumoHi
     os: numeroOsExibicao(i.servico),
     setorServico: i.servico.setor,
     servico: i.servico.descricao,
-    insumo: textoInsumoExibicao(i.descricao, i.quantidade),
+    insumo: textoInsumoExibicao(i.descricao, i.quantidade, i.posicao),
     tipo: i.aguardarPeca ? 'Aguardando peça' : 'Insumo',
     status: i.atendido ? 'Atendido' : 'Pendente',
     solicitadoPor: i.solicitadoPor?.nome ?? '—',

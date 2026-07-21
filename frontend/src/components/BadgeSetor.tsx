@@ -12,6 +12,14 @@ export function classeBadgeProfissionalSetor(setor: Setor): string {
   return classeChipSetor(setor, 'ml-0.5');
 }
 
+/** Profissional no veículo — preto quando pausado (almoço, etc.). */
+export function classeNomeProfissionalServico(setor: Setor, pausadoEm?: string | null): string {
+  if (pausadoEm) {
+    return `${BASE_CHIP_SETOR} bg-black text-white ml-0.5`;
+  }
+  return classeBadgeProfissionalSetor(setor);
+}
+
 /** Nome de quem solicitou peça — vermelho, para não confundir com profissional em serviço. */
 export function classeNomeSolicitantePeca(textoClaro = false, temaEscuro = false): string {
   const cor = temaEscuro ? 'text-red-400' : textoClaro ? 'text-red-300' : 'text-red-600';

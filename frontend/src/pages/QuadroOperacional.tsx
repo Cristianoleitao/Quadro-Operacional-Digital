@@ -19,8 +19,8 @@ import {
   type SecaoQuadro,
 } from '../lib/quadro';
 import type { Servico, Garagem } from '../types';
-import { textoAguardandoPecaPendente, nomeProfissionalSolicitouPeca } from '../lib/servico';
-import { ChipSetor, classeBadgeProfissionalSetor, classeNomeSolicitantePeca } from '../components/BadgeSetor';
+import { textoAguardandoPecaQuadro } from '../lib/servico';
+import { ChipSetor, classeNomeProfissionalServico, classeNomeSolicitantePeca } from '../components/BadgeSetor';
 import { InputProfissionalServico, primeiroNome } from '../components/InputProfissionalServico';
 
 const COLUNAS = [
@@ -105,9 +105,8 @@ function CelulaServicos({
         {servicos.map((s, i) => {
           const editando = servicoProfissionalEditando === s.id;
           const aguardandoPeca = s.status === 'AGUARDANDO_INSUMO';
-          const textoPeca = textoAguardandoPecaPendente(s);
-          const nomeSolicitante = aguardandoPeca ? nomeProfissionalSolicitouPeca(s) : '';
-          const badgeProfissional = classeBadgeProfissionalSetor(s.setor);
+          const textoAguardando = aguardandoPeca ? textoAguardandoPecaQuadro(s) : '';
+          const badgeProfissional = classeNomeProfissionalServico(s.setor, s.pausadoEm);
           const temProfissional = Boolean(s.profissional?.nome);
           const badgeSetorOuProfissional = temProfissional ? (
             <span className={`${badgeProfissional} mr-0.5`}>
@@ -167,18 +166,11 @@ function CelulaServicos({
                 {s.descricao}
               </span>
               {aguardandoPeca ? (
-                <>
-                  {textoPeca ? (
-                    <span className={classeNomeSolicitantePeca(textoClaro)} title="Aguardando peça">
-                      {textoPeca}
-                    </span>
-                  ) : null}
-                  {nomeSolicitante ? (
-                    <span className={classeNomeSolicitantePeca(textoClaro)} title="Profissional que solicitou a peça">
-                      {nomeSolicitante}
-                    </span>
-                  ) : null}
-                </>
+                textoAguardando ? (
+                  <span className={classeNomeSolicitantePeca(textoClaro)} title="Aguardando peça">
+                    {textoAguardando}
+                  </span>
+                ) : null
               ) : s.status === 'SERVICO_EXTERNO' ? (
                 <>
                   {s.localExterno?.trim() ? (
