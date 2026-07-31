@@ -379,6 +379,34 @@ router.post('/cadastro-rapido', async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // REV: um veículo = um serviço de revisão preventiva (reutiliza se já existir)
+    if (isRev) {
+      const existente = await prisma.servico.findFirst({
+        where: {
+          veiculoId: veiculo.id,
+          setor: Setor.OUTRO,
+          status: StatusServico.MANUTENCAO_PREVENTIVA,
+        },
+        include: servicoInclude,
+        orderBy: { createdAt: 'asc' },
+      });
+      if (existente) {
+        await auditLog(req, 'CRIAR', 'Servico', existente.id, {
+          veiculoNumero,
+          setor,
+          descricao: existente.descricao,
+          status: existente.status,
+          reutilizado: true,
+        });
+        broadcast('quadro:update', null);
+        return res.status(200).json({
+          servico: existente,
+          reutilizado: true,
+          mensagem: 'Revisão preventiva já existe para este veículo',
+        });
+      }
+    }
+
     const servico = await prisma.servico.create({
       data: {
         veiculoId: veiculo.id,
@@ -892,6 +920,62 @@ router.patch(
         return res.status(400).json({ error: 'Nenhum serviço aberto neste veículo' });
       }
 
+      // Revisão preventiva: consolida em 1 serviço REV (OUTRO) para N profissionais
+      if (status === StatusServico.MANUTENCAO_PREVENTIVA) {
+        const agora = new Date();
+        const principal =
+          servicos.find((s) => s.setor === Setor.OUTRO) ?? servicos[0];
+        const demais = servicos.filter((s) => s.id !== principal.id);
+
+        await prisma.$transaction([
+          prisma.servico.update({
+            where: { id: principal.id },
+            data: {
+              status: StatusServico.MANUTENCAO_PREVENTIVA,
+              setor: Setor.OUTRO,
+              descricao: 'REVISÃO PREVENTIVA',
+              profissionalId: null,
+              horaAssumido: null,
+              horaInicio: null,
+              pausadoEm: null,
+              minutosPausadosAcum: 0,
+            },
+          }),
+          ...demais.map((s) =>
+            prisma.servico.update({
+              where: { id: s.id },
+              data: {
+                status: StatusServico.FINALIZADO,
+                horaTermino: s.horaTermino ?? agora,
+                tempoTotalMin:
+                  s.tempoTotalMin ??
+                  minutosTrabalhadosServico(
+                    {
+                      horaInicio: s.horaInicio,
+                      pausadoEm: s.pausadoEm,
+                      minutosPausadosAcum: s.minutosPausadosAcum,
+                    },
+                    agora,
+                  ),
+                correcao: s.correcao ?? 'Unificado em revisão preventiva',
+                profissionalId: null,
+                pausadoEm: null,
+                finalizadoPorId: s.finalizadoPorId ?? req.user!.id,
+              },
+            }),
+          ),
+        ]);
+
+        await auditLog(req, 'ATUALIZAR_STATUS_VEICULO', 'Veiculo', veiculoId, {
+          status,
+          atualizados: 1,
+          unificados: demais.length,
+          servicoPrincipalId: principal.id,
+        });
+        broadcast('quadro:update', null);
+        return res.json({ ok: true, atualizados: 1, unificados: demais.length });
+      }
+
       await prisma.$transaction(
         servicos.map((s) =>
           prisma.servico.update({
@@ -1366,9 +1450,36 @@ router.patch(
         return res.json(atual);
       }
 
+      if (setor === Setor.OUTRO) {
+        const outroRev = await prisma.servico.findFirst({
+          where: {
+            veiculoId: servico.veiculoId,
+            setor: Setor.OUTRO,
+            status: StatusServico.MANUTENCAO_PREVENTIVA,
+            id: { not: id },
+          },
+        });
+        if (outroRev) {
+          return res.status(409).json({
+            error: 'Já existe revisão preventiva neste veículo. Use o serviço REV existente.',
+          });
+        }
+      }
+
       const updated = await prisma.servico.update({
         where: { id },
-        data: { setor },
+        data: {
+          setor,
+          ...(setor === Setor.OUTRO
+            ? {
+                status: StatusServico.MANUTENCAO_PREVENTIVA,
+                descricao: 'REVISÃO PREVENTIVA',
+                profissionalId: null,
+                horaAssumido: null,
+                horaInicio: null,
+              }
+            : {}),
+        },
         include: servicoInclude,
       });
 

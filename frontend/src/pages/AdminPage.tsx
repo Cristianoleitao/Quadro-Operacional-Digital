@@ -876,7 +876,11 @@ export default function AdminPage() {
         garagemId,
       });
       setDescricao('');
-      setMensagem(isRev ? 'Revisão preventiva adicionada' : 'Serviço adicionado');
+      setMensagem(
+        isRev
+          ? 'Revisão preventiva adicionada (1 serviço por veículo)'
+          : 'Serviço adicionado',
+      );
       await carregar();
     } catch (err) {
       setMensagem(err instanceof Error ? err.message : 'Erro ao salvar serviço');
