@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { api, connectWebSocket } from '../lib/api';
-import { veiculoNumero, numeroOsExibicao, formatInsumoCodigo, servicoPausado } from '../lib/servico';
+import { veiculoNumero, numeroOsExibicao, formatInsumoCodigo, servicoPausado, isPreventivaRev, TEXTO_REVISAO_PREVENTIVA, obsParticipacaoAtual } from '../lib/servico';
 import { tituloSecaoServico, agruparPorSecao, saidaVeiculoQuadro, idsVeiculosSaidaPrioritariaPorServicos, ordenarServicosPorPrioridadeSaida, ordenarCorretivaProfissional, servicoExibeHoraSaida, mapaServicosPorVeiculo, servicoSujeitoPrazoInicio, infoPrazoInicioProfissional, classeBordaCardPrazoProfissional, type AlertaPrazoVeiculo } from '../lib/quadro';
 import { useAuth } from '../context/AuthContext';
 import { useGravadorAudio } from '../hooks/useGravadorAudio';
@@ -86,6 +86,7 @@ export default function ProfissionalPage() {
   const [aba, setAba] = useState<'disponiveis' | 'execucao'>('disponiveis');
 
   const [correcao, setCorrecao] = useState('');
+  const [obsPreventiva, setObsPreventiva] = useState('');
   const [aguardandoPeca, setAguardandoPeca] = useState('');
   const [insumoCodigo, setInsumoCodigo] = useState('');
   const [insumoQtd, setInsumoQtd] = useState('1');
@@ -119,6 +120,14 @@ export default function ProfissionalPage() {
     if (atualizado) setSelecionado(atualizado);
     else setSelecionado(null);
   }, [emExecucao, aba, selecionado?.id]);
+
+  useEffect(() => {
+    if (!selecionado || !isPreventivaRev(selecionado)) {
+      setObsPreventiva('');
+      return;
+    }
+    setObsPreventiva(obsParticipacaoAtual(selecionado, usuario?.id));
+  }, [selecionado?.id, selecionado?.participantes, usuario?.id]);
 
   const assumir = async (id: string) => {
     setLoading(true);
@@ -154,18 +163,41 @@ export default function ProfissionalPage() {
       ? selecionado
       : null;
 
+  const salvarObsPreventiva = async () => {
+    if (!servicoEmExecucao || !isPreventivaRev(servicoEmExecucao)) return;
+    const atual = obsParticipacaoAtual(servicoEmExecucao, usuario?.id);
+    const novo = obsPreventiva.trim().toUpperCase();
+    if (novo === atual) return;
+    setLoading(true);
+    try {
+      const atualizado = await api.atualizarObsParticipante(servicoEmExecucao.id, novo);
+      setSelecionado(atualizado);
+      await carregar();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao salvar OBS');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const ehSetorLimpeza = usuario?.setor === 'LIMP';
   const ehControler = isControler(usuario);
 
   const marcarAguardandoPeca = async () => {
     if (!servicoEmExecucao || !aguardandoPeca.trim()) return;
+    const preventiva = isPreventivaRev(servicoEmExecucao);
     setLoading(true);
     try {
       await api.solicitarInsumo(servicoEmExecucao.id, aguardandoPeca.trim().toUpperCase(), true);
       setAguardandoPeca('');
-      setSelecionado(null);
-      setAba('disponiveis');
-      await carregar();
+      if (preventiva) {
+        // Permanece na preventiva; peça vai ao estoque sem mudar status
+        await carregar();
+      } else {
+        setSelecionado(null);
+        setAba('disponiveis');
+        await carregar();
+      }
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Erro');
     } finally {
@@ -433,8 +465,17 @@ export default function ProfissionalPage() {
 
               <div className="flex-1 min-w-0">
                 <p className="text-slate-300 min-w-0 break-words">
-                  <BadgeSetor setor={s.setor} className="mr-1" />
-                  {s.descricao}
+                  {isPreventivaRev(s) ? (
+                    <>
+                      <BadgeSetor setor={s.setor} className="mr-1" />
+                      {TEXTO_REVISAO_PREVENTIVA}
+                    </>
+                  ) : (
+                    <>
+                      <BadgeSetor setor={s.setor} className="mr-1" />
+                      {s.descricao}
+                    </>
+                  )}
                 </p>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   <BadgePrazoInicio
@@ -483,7 +524,9 @@ export default function ProfissionalPage() {
           <p className="text-center text-slate-500 py-12">Nenhum serviço nesta aba</p>
         )}
 
-        <HistoricoProfissionalPanel versaoAtualizacao={versaoLista} />
+        {aba === 'disponiveis' && (
+          <HistoricoProfissionalPanel versaoAtualizacao={versaoLista} />
+        )}
       </main>
 
       {servicoEmExecucao && (
@@ -528,6 +571,27 @@ export default function ProfissionalPage() {
               {servicoEmExecucao && servicoPausado(servicoEmExecucao) ? 'Retomar' : 'Pausar'}
             </button>
           </div>
+
+          {isPreventivaRev(servicoEmExecucao) && (
+            <div className={`mb-2 p-2 bg-slate-900 rounded border border-sky-800/60 ${servicoPausado(servicoEmExecucao) ? 'opacity-60 pointer-events-none' : ''}`}>
+              <p className="text-slate-400 text-xs font-semibold mb-1">OBS</p>
+              <textarea
+                value={obsPreventiva}
+                onChange={(e) => setObsPreventiva(e.target.value.toUpperCase())}
+                onBlur={() => void salvarObsPreventiva()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    void salvarObsPreventiva();
+                  }
+                }}
+                placeholder="Observação para o quadro TV..."
+                rows={2}
+                className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm uppercase"
+              />
+              <p className="text-slate-500 text-[10px] mt-1">Salva ao sair do campo (Enter). Aparece no quadro no seu setor.</p>
+            </div>
+          )}
 
           <div className="space-y-2">
           {ehControler && (
@@ -664,7 +728,9 @@ export default function ProfissionalPage() {
               }
               className="w-full mt-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-2 rounded text-sm"
             >
-              CONCLUIR SERVIÇO
+              {servicoEmExecucao && isPreventivaRev(servicoEmExecucao)
+                ? 'CONCLUIR MINHA PARTE'
+                : 'CONCLUIR SERVIÇO'}
             </button>
           </form>
           </div>

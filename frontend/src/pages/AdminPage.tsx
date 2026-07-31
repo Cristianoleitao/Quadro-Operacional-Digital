@@ -3,13 +3,13 @@ import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { api, connectWebSocket, mediaUrl } from '../lib/api';
 import { SETOR_QUADRO, SECOES_QUADRO, secaoDoVeiculoQuadro } from '../lib/quadro';
-import { veiculoNumero, textoAguardandoPecaQuadro, textoInsumoExibicao, formatInsumoCodigo, nomeCompletoProfissionalSolicitouPeca, tempoServicoAtivoMin } from '../lib/servico';
+import { veiculoNumero, textoAguardandoPecaQuadro, textoInsumoExibicao, formatInsumoCodigo, nomeCompletoProfissionalSolicitouPeca, tempoServicoAtivoMin, isPreventivaRev, participantesAtivos, TEXTO_REVISAO_PREVENTIVA, textosPecaPendenteDoProfissional, textosPecaPendenteOrfas } from '../lib/servico';
 import {
   InputHoraVeiculo,
   InputOsVeiculo,
 } from '../components/DadosVeiculoQuadroInputs';
-import { InputProfissionalServico } from '../components/InputProfissionalServico';
-import { classeNomeProfissionalServico, classeNomeSolicitantePeca } from '../components/BadgeSetor';
+import { InputProfissionalServico, primeiroNome } from '../components/InputProfissionalServico';
+import { classeNomeProfissionalServico, classeNomeSolicitantePeca, ChipSetor } from '../components/BadgeSetor';
 import { InputLocalExternoServico } from '../components/InputLocalExternoServico';
 import { SelectSetorServico } from '../components/SelectSetorServico';
 import { useAuth } from '../context/AuthContext';
@@ -375,6 +375,73 @@ function CelulasServicosAgregados({
                     onAtualizado={onAtualizado}
                   />
                 </div>
+              ) : isPreventivaRev(s) ? (
+                <div className={`flex flex-wrap items-center gap-1 ${classeItemServicoAdmin(true)}`}>
+                  <span className="font-semibold uppercase text-xs">
+                    {TEXTO_REVISAO_PREVENTIVA}
+                  </span>
+                  {participantesAtivos(s).length === 0 ? (
+                    <>
+                      <ChipSetor setor="OUTRO" />
+                      {textosPecaPendenteOrfas(s).map((peca) => (
+                        <span
+                          key={peca}
+                          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase bg-yellow-300 text-black"
+                        >
+                          {peca}
+                        </span>
+                      ))}
+                    </>
+                  ) : (
+                    participantesAtivos(s).map((p, pi) => {
+                      const setorP = p.profissional?.setor ?? s.setor;
+                      const obs = p.obs?.trim();
+                      const pecas = textosPecaPendenteDoProfissional(s, p.profissionalId);
+                      return (
+                        <Fragment key={p.id}>
+                          {pi > 0 && (
+                            <span className="text-slate-500 font-bold mx-0.5">/</span>
+                          )}
+                          <span className="inline-flex items-center gap-1 flex-wrap">
+                            {obs ? (
+                              <span
+                                className="text-xs font-normal uppercase text-black"
+                                title={`OBS ${SETOR_PREFIX[setorP]}`}
+                              >
+                                {obs}
+                              </span>
+                            ) : null}
+                            {pecas.map((peca) => (
+                              <span
+                                key={peca}
+                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase bg-yellow-300 text-black"
+                              >
+                                {peca}
+                              </span>
+                            ))}
+                            <span
+                              className={classeNomeProfissionalServico(setorP, p.pausadoEm)}
+                              title={p.profissional?.nome ?? SETOR_PREFIX[setorP]}
+                            >
+                              {p.profissional?.nome
+                                ? primeiroNome(p.profissional.nome)
+                                : SETOR_PREFIX[setorP]}
+                            </span>
+                          </span>
+                        </Fragment>
+                      );
+                    })
+                  )}
+                  {participantesAtivos(s).length > 0 &&
+                    textosPecaPendenteOrfas(s).map((peca) => (
+                      <Fragment key={`orf-${peca}`}>
+                        <span className="text-slate-500 font-bold mx-0.5">/</span>
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase bg-yellow-300 text-black">
+                          {peca}
+                        </span>
+                      </Fragment>
+                    ))}
+                </div>
               ) : (
                 <span className={`break-words ${classeItemServicoAdmin(true)}`}>
                   {s.descricao}
@@ -392,6 +459,26 @@ function CelulasServicosAgregados({
                 <CelulaProfissionalAguardandoPeca servico={s} />
               ) : s.status === 'SERVICO_EXTERNO' ? (
                 <span className="text-slate-500">—</span>
+              ) : isPreventivaRev(s) ? (
+                <div className="flex flex-wrap gap-1">
+                  {participantesAtivos(s).length === 0 ? (
+                    <span className="text-slate-500 text-xs">Aguardando alocação</span>
+                  ) : (
+                    participantesAtivos(s).map((p) => {
+                      const setorP = p.profissional?.setor ?? s.setor;
+                      return (
+                        <span
+                          key={p.id}
+                          className={classeNomeProfissionalServico(setorP, p.pausadoEm)}
+                        >
+                          {p.profissional?.nome
+                            ? primeiroNome(p.profissional.nome)
+                            : SETOR_PREFIX[setorP]}
+                        </span>
+                      );
+                    })
+                  )}
+                </div>
               ) : (
                 <InputProfissionalServico
                   servicoId={s.id}
@@ -769,7 +856,8 @@ export default function AdminPage() {
       setMensagem('Informe o número do veículo');
       return;
     }
-    if (!descricao.trim()) {
+    const isRev = setor === 'OUTRO';
+    if (!isRev && !descricao.trim()) {
       setMensagem('Informe a descrição do serviço');
       return;
     }
@@ -782,11 +870,13 @@ export default function AdminPage() {
       await api.cadastroRapido({
         veiculoNumero: veiculoNumeroInput.trim().toUpperCase(),
         setor,
-        descricao: descricao.trim().toUpperCase(),
+        descricao: isRev
+          ? descricao.trim().toUpperCase() || 'REVISÃO PREVENTIVA'
+          : descricao.trim().toUpperCase(),
         garagemId,
       });
       setDescricao('');
-      setMensagem('Serviço adicionado');
+      setMensagem(isRev ? 'Revisão preventiva adicionada' : 'Serviço adicionado');
       await carregar();
     } catch (err) {
       setMensagem(err instanceof Error ? err.message : 'Erro ao salvar serviço');
@@ -1165,7 +1255,7 @@ export default function AdminPage() {
           </select>
           <input
             type="text"
-            placeholder="Descrição do serviço"
+            placeholder={setor === 'OUTRO' ? 'REVISÃO PREVENTIVA (opcional)' : 'Descrição do serviço'}
             value={descricao}
             onChange={(e) => setDescricao(e.target.value.toUpperCase())}
             onKeyDown={handleKeyDownCadastro}

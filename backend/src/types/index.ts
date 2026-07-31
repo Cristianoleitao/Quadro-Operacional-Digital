@@ -20,7 +20,7 @@ export const SETOR_LABELS: Record<Setor, string> = {
   REFR: 'Refrigeração',
   BORR: 'Borracharia',
   LIMP: 'Limpeza',
-  OUTRO: 'Outro',
+  OUTRO: 'Revisão',
 };
 
 export const SETOR_PREFIX: Record<Setor, string> = {
@@ -31,7 +31,7 @@ export const SETOR_PREFIX: Record<Setor, string> = {
   REFR: '[REFR]',
   BORR: '[BORR]',
   LIMP: '[LIMP]',
-  OUTRO: '[OUTRO]',
+  OUTRO: '[REV]',
 };
 
 export const STATUS_LABELS: Record<string, string> = {

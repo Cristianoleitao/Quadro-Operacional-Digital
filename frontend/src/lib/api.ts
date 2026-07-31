@@ -214,6 +214,12 @@ export const api = {
   despausarServico: (id: string) =>
     request<Servico>(`/servicos/${id}/despausar`, { method: 'POST' }),
 
+  atualizarObsParticipante: (id: string, obs: string) =>
+    request<Servico>(`/servicos/${id}/obs-participante`, {
+      method: 'PATCH',
+      body: JSON.stringify({ obs }),
+    }),
+
   atualizarStatus: (id: string, status: string, descricaoPeca?: string) =>
     request<Servico>(`/servicos/${id}/status`, {
       method: 'PATCH',

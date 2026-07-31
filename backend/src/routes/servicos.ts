@@ -32,12 +32,59 @@ const servicoInclude = {
   },
   profissional: profissionalResumoSelect,
   finalizadoPor: profissionalResumoSelect,
+  participantes: {
+    where: { horaTermino: null },
+    include: { profissional: profissionalResumoSelect },
+    orderBy: { horaAssumido: 'asc' as const },
+  },
   insumos: {
     include: {
       solicitadoPor: profissionalResumoSelect,
     },
   },
 };
+
+/** Setores que podem se alocar em revisão preventiva (REV / OUTRO). */
+const SETORES_PREVENTIVA: Setor[] = [
+  Setor.MEC,
+  Setor.ELE,
+  Setor.REFR,
+  Setor.LANT,
+  Setor.PINT,
+  Setor.BORR,
+];
+
+function isPreventivaRev(servico: { status: StatusServico; setor: Setor }): boolean {
+  return servico.status === StatusServico.MANUTENCAO_PREVENTIVA && servico.setor === Setor.OUTRO;
+}
+
+/** Espelha a participação ativa do usuário nos campos 1:1 do serviço (UI profissional). */
+function comParticipacaoDoUsuario<T extends Record<string, unknown>>(
+  servico: T & {
+    participantes?: Array<{
+      profissionalId: string;
+      profissional?: unknown;
+      horaAssumido: Date;
+      horaInicio: Date | null;
+      pausadoEm: Date | null;
+      minutosPausadosAcum: number;
+      horaTermino?: Date | null;
+    }>;
+  },
+  userId: string,
+) {
+  const p = servico.participantes?.find((x) => x.profissionalId === userId && !x.horaTermino);
+  if (!p) return servico;
+  return {
+    ...servico,
+    profissionalId: p.profissionalId,
+    profissional: p.profissional,
+    horaAssumido: p.horaAssumido,
+    horaInicio: p.horaInicio,
+    pausadoEm: p.pausadoEm,
+    minutosPausadosAcum: p.minutosPausadosAcum,
+  };
+}
 
 /** Status em que o profissional é desconectado do serviço (visíveis no quadro, sem vínculo ativo). */
 const STATUS_DESCONECTA_PROFISSIONAL: StatusServico[] = [
@@ -158,7 +205,10 @@ async function restaurarVeiculoSeSemPecaPendente(veiculoId: string): Promise<num
 const cadastroRapidoSchema = z.object({
   veiculoNumero: z.string().min(1).transform((s) => s.trim().toUpperCase()),
   setor: z.nativeEnum(Setor),
-  descricao: z.string().min(1).transform((s) => s.trim().toUpperCase()),
+  descricao: z
+    .string()
+    .optional()
+    .transform((s) => (s ?? '').trim().toUpperCase()),
   garagemId: z.string().uuid(),
 });
 
@@ -282,6 +332,14 @@ router.post('/cadastro-rapido', async (req: AuthRequest, res: Response) => {
     const { veiculoNumero, setor, descricao, garagemId } = cadastroRapidoSchema.parse(req.body);
     const numeroNormalizado = veiculoNumero.trim().toUpperCase();
 
+    const isRev = setor === Setor.OUTRO;
+    const descricaoFinal = isRev
+      ? descricao || 'REVISÃO PREVENTIVA'
+      : descricao;
+    if (!descricaoFinal) {
+      return res.status(400).json({ error: 'Descrição obrigatória' });
+    }
+
     const garagem = await prisma.garagem.findFirst({
       where: { id: garagemId, ativo: true },
     });
@@ -325,8 +383,8 @@ router.post('/cadastro-rapido', async (req: AuthRequest, res: Response) => {
       data: {
         veiculoId: veiculo.id,
         setor,
-        descricao,
-        status: StatusServico.EM_EXECUCAO,
+        descricao: descricaoFinal,
+        status: isRev ? StatusServico.MANUTENCAO_PREVENTIVA : StatusServico.EM_EXECUCAO,
       },
       include: servicoInclude,
     });
@@ -335,7 +393,12 @@ router.post('/cadastro-rapido', async (req: AuthRequest, res: Response) => {
     //   await garantirServicoLimpezaVeiculo(veiculo.id);
     // }
 
-    await auditLog(req, 'CRIAR', 'Servico', servico.id, { veiculoNumero, setor, descricao });
+    await auditLog(req, 'CRIAR', 'Servico', servico.id, {
+      veiculoNumero,
+      setor,
+      descricao: descricaoFinal,
+      status: servico.status,
+    });
     broadcast('quadro:update', null);
 
     res.status(201).json({ servico });
@@ -495,47 +558,109 @@ router.get('/meus', async (req: AuthRequest, res: Response) => {
   });
 
   const controler = isControler(usuario);
+  const filtroGaragem = usuario?.garagemId ? { veiculo: { garagemId: usuario.garagemId } } : {};
 
-  const where: Record<string, unknown> = {
+  if (controler) {
+    const servicos = await prisma.servico.findMany({
+      where: {
+        profissionalId: null,
+        status: StatusServico.SERVICO_EXTERNO,
+        ...filtroGaragem,
+      },
+      include: servicoInclude,
+      orderBy: { createdAt: 'asc' },
+    });
+    return res.json(await enriquecerVeiculosLista(await anexarHoraSaidaVeiculos(servicos)));
+  }
+
+  const whereCorretiva: Record<string, unknown> = {
     profissionalId: null,
-    status: controler ? StatusServico.SERVICO_EXTERNO : { in: STATUS_PROFISSIONAL_ATIVO },
+    status: { in: STATUS_PROFISSIONAL_ATIVO.filter((s) => s !== StatusServico.MANUTENCAO_PREVENTIVA) },
+    ...filtroGaragem,
   };
-
-  if (user.role === Role.PROFISSIONAL && usuario?.setor && !controler) {
-    where.setor = usuario.setor;
+  if (user.role === Role.PROFISSIONAL && usuario?.setor) {
+    whereCorretiva.setor = usuario.setor;
   }
 
-  if (user.role === Role.PROFISSIONAL && usuario?.garagemId) {
-    where.veiculo = { garagemId: usuario.garagemId };
-  }
-
-  const servicos = await prisma.servico.findMany({
-    where,
+  const corretivos = await prisma.servico.findMany({
+    where: whereCorretiva,
     include: servicoInclude,
     orderBy: { createdAt: 'asc' },
   });
 
-  res.json(await enriquecerVeiculosLista(await anexarHoraSaidaVeiculos(servicos)));
+  let preventivas: typeof corretivos = [];
+  if (
+    user.role === Role.PROFISSIONAL &&
+    usuario?.setor &&
+    SETORES_PREVENTIVA.includes(usuario.setor)
+  ) {
+    preventivas = await prisma.servico.findMany({
+      where: {
+        setor: Setor.OUTRO,
+        status: StatusServico.MANUTENCAO_PREVENTIVA,
+        participantes: { none: { profissionalId: user.id, horaTermino: null } },
+        ...filtroGaragem,
+      },
+      include: servicoInclude,
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  // Também listar preventiva legada (mesmo status) com setor do profissional, sem participante
+  const preventivaDoSetor = await prisma.servico.findMany({
+    where: {
+      profissionalId: null,
+      status: StatusServico.MANUTENCAO_PREVENTIVA,
+      setor: usuario?.setor ?? undefined,
+      NOT: { setor: Setor.OUTRO },
+      ...filtroGaragem,
+    },
+    include: servicoInclude,
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const lista = [...corretivos, ...preventivas, ...preventivaDoSetor];
+  res.json(await enriquecerVeiculosLista(await anexarHoraSaidaVeiculos(lista)));
 });
 
 router.get('/em-execucao', async (req: AuthRequest, res: Response) => {
+  const userId = req.user!.id;
   const usuario = await prisma.usuario.findUnique({
-    where: { id: req.user!.id },
+    where: { id: userId },
     select: { especialidade: true },
   });
   const controler = isControler(usuario);
 
-  const servicos = await prisma.servico.findMany({
-    where: {
-      profissionalId: req.user!.id,
-      status: controler
-        ? StatusServico.SERVICO_EXTERNO
-        : { in: STATUS_PROFISSIONAL_ATIVO },
-    },
-    include: servicoInclude,
-    orderBy: { horaAssumido: 'asc' },
-  });
-  res.json(await enriquecerVeiculosLista(await anexarHoraSaidaVeiculos(servicos)));
+  const [corretivos, preventivas] = await Promise.all([
+    prisma.servico.findMany({
+      where: {
+        profissionalId: userId,
+        status: controler
+          ? StatusServico.SERVICO_EXTERNO
+          : { in: STATUS_PROFISSIONAL_ATIVO },
+      },
+      include: servicoInclude,
+      orderBy: { horaAssumido: 'asc' },
+    }),
+    controler
+      ? Promise.resolve([])
+      : prisma.servico.findMany({
+          where: {
+            setor: Setor.OUTRO,
+            status: StatusServico.MANUTENCAO_PREVENTIVA,
+            participantes: { some: { profissionalId: userId, horaTermino: null } },
+          },
+          include: servicoInclude,
+          orderBy: { createdAt: 'asc' },
+        }),
+  ]);
+
+  const lista = [
+    ...corretivos,
+    ...preventivas.map((s) => comParticipacaoDoUsuario(s, userId)),
+  ];
+
+  res.json(await enriquecerVeiculosLista(await anexarHoraSaidaVeiculos(lista)));
 });
 
 router.get('/meu-historico', requireRole(Role.PROFISSIONAL), async (req: AuthRequest, res: Response) => {
@@ -574,8 +699,8 @@ router.get('/acompanhamento', requireRole(Role.ADMINISTRADOR), async (_req, res:
 router.get('/estoque', requireRole(Role.ESTOQUE), async (_req, res: Response) => {
   const servicos = await prisma.servico.findMany({
     where: {
-      status: StatusServico.AGUARDANDO_INSUMO,
       veiculo: { fechadoAdmin: false },
+      status: { notIn: STATUS_FORA_DO_QUADRO },
       insumos: { some: { aguardarPeca: true, atendido: false } },
     },
     include: servicoInclude,
@@ -796,20 +921,54 @@ router.patch(
 router.post('/:id/assumir', requireRole(Role.PROFISSIONAL), async (req: AuthRequest, res: Response) => {
   const usuario = await prisma.usuario.findUnique({
     where: { id: req.user!.id },
-    select: { especialidade: true },
+    select: { especialidade: true, setor: true },
   });
   const controler = isControler(usuario);
 
   const servico = await prisma.servico.findUnique({
     where: { id: paramId(req.params.id) },
-    include: { profissional: true },
+    include: {
+      profissional: true,
+      participantes: { where: { horaTermino: null } },
+    },
   });
 
   if (!servico) return res.status(404).json({ error: 'Serviço não encontrado' });
-  if (servico.profissionalId) return res.status(409).json({ error: 'Serviço já assumido' });
   if (servico.status === StatusServico.FINALIZADO || servico.status === StatusServico.CONCLUIDO) {
     return res.status(400).json({ error: 'Serviço já finalizado' });
   }
+
+  const agora = new Date();
+
+  // Revisão preventiva REV: N profissionais
+  if (isPreventivaRev(servico)) {
+    if (!usuario?.setor || !SETORES_PREVENTIVA.includes(usuario.setor)) {
+      return res.status(403).json({ error: 'Seu setor não participa da revisão preventiva' });
+    }
+    if (servico.participantes.some((p) => p.profissionalId === req.user!.id)) {
+      return res.status(409).json({ error: 'Você já está alocado nesta revisão' });
+    }
+
+    await prisma.servicoParticipante.create({
+      data: {
+        servicoId: servico.id,
+        profissionalId: req.user!.id,
+        horaAssumido: agora,
+        horaInicio: agora,
+      },
+    });
+
+    const updated = await prisma.servico.findUnique({
+      where: { id: servico.id },
+      include: servicoInclude,
+    });
+
+    await auditLog(req, 'ASSUMIR', 'Servico', servico.id, { modo: 'participante' });
+    broadcast('quadro:update', null);
+    return res.json(comParticipacaoDoUsuario(updated!, req.user!.id));
+  }
+
+  if (servico.profissionalId) return res.status(409).json({ error: 'Serviço já assumido' });
   if (controler) {
     if (servico.status !== StatusServico.SERVICO_EXTERNO) {
       return res.status(400).json({ error: 'Controler só assume serviços externos' });
@@ -818,7 +977,6 @@ router.post('/:id/assumir', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
     return res.status(400).json({ error: 'Só é possível assumir serviços disponíveis para execução' });
   }
 
-  const agora = new Date();
   const statusAposAssumir =
     servico.status === StatusServico.PARADO_CRITICO || servico.status === StatusServico.EM_EXECUCAO
       ? StatusServico.EM_EXECUCAO
@@ -843,13 +1001,34 @@ router.post('/:id/assumir', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
 });
 
 router.post('/:id/liberar', requireRole(Role.PROFISSIONAL), async (req: AuthRequest, res: Response) => {
-  const servico = await prisma.servico.findUnique({ where: { id: paramId(req.params.id) } });
+  const servico = await prisma.servico.findUnique({
+    where: { id: paramId(req.params.id) },
+    include: {
+      participantes: { where: { profissionalId: req.user!.id, horaTermino: null } },
+    },
+  });
   if (!servico) return res.status(404).json({ error: 'Serviço não encontrado' });
-  if (servico.profissionalId !== req.user!.id) {
-    return res.status(403).json({ error: 'Serviço não está em sua execução' });
-  }
   if (STATUS_FORA_DO_QUADRO.includes(servico.status)) {
     return res.status(400).json({ error: 'Serviço já encerrado' });
+  }
+
+  if (isPreventivaRev(servico)) {
+    const participacao = servico.participantes[0];
+    if (!participacao) {
+      return res.status(403).json({ error: 'Serviço não está em sua execução' });
+    }
+    await prisma.servicoParticipante.delete({ where: { id: participacao.id } });
+    const updated = await prisma.servico.findUnique({
+      where: { id: servico.id },
+      include: servicoInclude,
+    });
+    await auditLog(req, 'LIBERAR', 'Servico', servico.id, { modo: 'participante' });
+    broadcast('quadro:update', null);
+    return res.json(updated);
+  }
+
+  if (servico.profissionalId !== req.user!.id) {
+    return res.status(403).json({ error: 'Serviço não está em sua execução' });
   }
 
   const updated = await prisma.servico.update({
@@ -870,13 +1049,42 @@ router.post('/:id/liberar', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
 });
 
 router.post('/:id/pausar', requireRole(Role.PROFISSIONAL), async (req: AuthRequest, res: Response) => {
-  const servico = await prisma.servico.findUnique({ where: { id: paramId(req.params.id) } });
+  const servico = await prisma.servico.findUnique({
+    where: { id: paramId(req.params.id) },
+    include: {
+      participantes: { where: { profissionalId: req.user!.id, horaTermino: null } },
+    },
+  });
   if (!servico) return res.status(404).json({ error: 'Serviço não encontrado' });
-  if (servico.profissionalId !== req.user!.id) {
-    return res.status(403).json({ error: 'Serviço não está em sua execução' });
-  }
   if (STATUS_FORA_DO_QUADRO.includes(servico.status)) {
     return res.status(400).json({ error: 'Serviço já encerrado' });
+  }
+
+  const agora = new Date();
+
+  if (isPreventivaRev(servico)) {
+    const participacao = servico.participantes[0];
+    if (!participacao) {
+      return res.status(403).json({ error: 'Serviço não está em sua execução' });
+    }
+    if (participacao.pausadoEm) {
+      return res.status(400).json({ error: 'Serviço já está pausado' });
+    }
+    await prisma.servicoParticipante.update({
+      where: { id: participacao.id },
+      data: { pausadoEm: agora },
+    });
+    const updated = await prisma.servico.findUnique({
+      where: { id: servico.id },
+      include: servicoInclude,
+    });
+    await auditLog(req, 'PAUSAR', 'Servico', servico.id, { modo: 'participante' });
+    broadcast('quadro:update', null);
+    return res.json(comParticipacaoDoUsuario(updated!, req.user!.id));
+  }
+
+  if (servico.profissionalId !== req.user!.id) {
+    return res.status(403).json({ error: 'Serviço não está em sua execução' });
   }
   const podePausar =
     STATUS_PROFISSIONAL_ATIVO.includes(servico.status) ||
@@ -888,7 +1096,6 @@ router.post('/:id/pausar', requireRole(Role.PROFISSIONAL), async (req: AuthReque
     return res.status(400).json({ error: 'Serviço já está pausado' });
   }
 
-  const agora = new Date();
   const updated = await prisma.servico.update({
     where: { id: servico.id },
     data: { pausadoEm: agora },
@@ -901,8 +1108,38 @@ router.post('/:id/pausar', requireRole(Role.PROFISSIONAL), async (req: AuthReque
 });
 
 router.post('/:id/despausar', requireRole(Role.PROFISSIONAL), async (req: AuthRequest, res: Response) => {
-  const servico = await prisma.servico.findUnique({ where: { id: paramId(req.params.id) } });
+  const servico = await prisma.servico.findUnique({
+    where: { id: paramId(req.params.id) },
+    include: {
+      participantes: { where: { profissionalId: req.user!.id, horaTermino: null } },
+    },
+  });
   if (!servico) return res.status(404).json({ error: 'Serviço não encontrado' });
+
+  const agora = new Date();
+
+  if (isPreventivaRev(servico)) {
+    const participacao = servico.participantes[0];
+    if (!participacao) {
+      return res.status(403).json({ error: 'Serviço não está em sua execução' });
+    }
+    if (!participacao.pausadoEm) {
+      return res.status(400).json({ error: 'Serviço não está pausado' });
+    }
+    const fimPausa = encerrarPausaServico(participacao, agora);
+    await prisma.servicoParticipante.update({
+      where: { id: participacao.id },
+      data: fimPausa,
+    });
+    const updated = await prisma.servico.findUnique({
+      where: { id: servico.id },
+      include: servicoInclude,
+    });
+    await auditLog(req, 'DESPAUSAR', 'Servico', servico.id, { modo: 'participante' });
+    broadcast('quadro:update', null);
+    return res.json(comParticipacaoDoUsuario(updated!, req.user!.id));
+  }
+
   if (servico.profissionalId !== req.user!.id) {
     return res.status(403).json({ error: 'Serviço não está em sua execução' });
   }
@@ -910,7 +1147,6 @@ router.post('/:id/despausar', requireRole(Role.PROFISSIONAL), async (req: AuthRe
     return res.status(400).json({ error: 'Serviço não está pausado' });
   }
 
-  const agora = new Date();
   const fimPausa = encerrarPausaServico(servico, agora);
   const updated = await prisma.servico.update({
     where: { id: servico.id },
@@ -922,6 +1158,61 @@ router.post('/:id/despausar', requireRole(Role.PROFISSIONAL), async (req: AuthRe
   broadcast('quadro:update', null);
   res.json(updated);
 });
+
+const obsParticipanteSchema = z.object({
+  obs: z
+    .string()
+    .max(500)
+    .transform((s) => s.trim().toUpperCase())
+    .transform((s) => (s.length === 0 ? null : s)),
+});
+
+router.patch(
+  '/:id/obs-participante',
+  requireRole(Role.PROFISSIONAL),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { obs } = obsParticipanteSchema.parse(req.body);
+      const servicoId = paramId(req.params.id);
+
+      const servico = await prisma.servico.findUnique({
+        where: { id: servicoId },
+        include: {
+          participantes: { where: { profissionalId: req.user!.id, horaTermino: null } },
+        },
+      });
+      if (!servico) return res.status(404).json({ error: 'Serviço não encontrado' });
+      if (!isPreventivaRev(servico)) {
+        return res.status(400).json({ error: 'OBS só se aplica à revisão preventiva' });
+      }
+
+      const participacao = servico.participantes[0];
+      if (!participacao) {
+        return res.status(403).json({ error: 'Serviço não está em sua execução' });
+      }
+
+      await prisma.servicoParticipante.update({
+        where: { id: participacao.id },
+        data: { obs },
+      });
+
+      const updated = await prisma.servico.findUnique({
+        where: { id: servicoId },
+        include: servicoInclude,
+      });
+
+      await auditLog(req, 'ATUALIZAR_OBS_PARTICIPANTE', 'Servico', servicoId, { obs });
+      broadcast('quadro:update', null);
+      res.json(comParticipacaoDoUsuario(updated!, req.user!.id));
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Dados inválidos', details: err.errors });
+      }
+      console.error(err);
+      res.status(500).json({ error: 'Erro interno' });
+    }
+  },
+);
 
 const statusSchema = z
   .object({
@@ -1116,17 +1407,28 @@ router.post('/:id/insumos', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
     const { descricao, alterarStatus, quantidade, posicao } = insumoSchema.parse(req.body);
     const servicoId = paramId(req.params.id);
 
-    const servico = await prisma.servico.findUnique({ where: { id: servicoId } });
+    const servico = await prisma.servico.findUnique({
+      where: { id: servicoId },
+      include: {
+        participantes: { where: { profissionalId: req.user!.id, horaTermino: null } },
+      },
+    });
     if (!servico) return res.status(404).json({ error: 'Serviço não encontrado' });
 
-    if (servico.profissionalId !== req.user!.id) {
+    const emExecucaoPreventiva = isPreventivaRev(servico) && servico.participantes.length > 0;
+    const emExecucaoNormal = servico.profissionalId === req.user!.id;
+    if (!emExecucaoPreventiva && !emExecucaoNormal) {
       return res.status(403).json({ error: 'Serviço não está em sua execução' });
     }
 
     if (!STATUS_PROFISSIONAL_ATIVO.includes(servico.status)) {
       return res.status(400).json({ error: 'Serviço não está ativo para solicitação de insumo' });
     }
-    if (servico.pausadoEm) {
+
+    const pausado = emExecucaoPreventiva
+      ? Boolean(servico.participantes[0]?.pausadoEm)
+      : Boolean(servico.pausadoEm);
+    if (pausado) {
       return res.status(400).json({ error: 'Retome o serviço antes de solicitar insumo' });
     }
 
@@ -1144,7 +1446,9 @@ router.post('/:id/insumos', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
       },
     });
 
-    if (alterarStatus) {
+    // Preventiva REV: registra peça para o estoque, mas não muda status nem desconecta
+    const mudarStatusAguardando = alterarStatus && !isPreventivaRev(servico);
+    if (mudarStatusAguardando) {
       await aplicarAguardandoInsumoNoVeiculo(servico.veiculoId);
     }
 
@@ -1152,8 +1456,9 @@ router.post('/:id/insumos', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
       descricao,
       quantidade: alterarStatus ? 1 : quantidade,
       alterarStatus,
+      preventivaSemMudarStatus: alterarStatus && isPreventivaRev(servico),
       veiculoId: servico.veiculoId,
-      profissionalDesconectado: alterarStatus && Boolean(servico.profissionalId),
+      profissionalDesconectado: mudarStatusAguardando && Boolean(servico.profissionalId),
     });
     broadcast('quadro:update', null);
     res.status(201).json(insumo);
@@ -1234,9 +1539,60 @@ router.post('/:id/finalizar', requireRole(Role.PROFISSIONAL), async (req: AuthRe
   try {
     const data = finalizarSchema.parse(req.body);
     const agora = new Date();
+    const servicoId = paramId(req.params.id);
 
-    const servico = await prisma.servico.findUnique({ where: { id: paramId(req.params.id) } });
+    const servico = await prisma.servico.findUnique({
+      where: { id: servicoId },
+      include: {
+        participantes: { where: { profissionalId: req.user!.id, horaTermino: null } },
+      },
+    });
     if (!servico) return res.status(404).json({ error: 'Serviço não encontrado' });
+
+    // Preventiva REV: encerra só a participação; serviço permanece aberto
+    if (isPreventivaRev(servico)) {
+      const participacao = servico.participantes[0];
+      if (!participacao) {
+        return res.status(403).json({ error: 'Serviço não está em sua execução' });
+      }
+
+      const fimPausa = encerrarPausaServico(participacao, agora);
+      await prisma.servicoParticipante.update({
+        where: { id: participacao.id },
+        data: {
+          horaTermino: agora,
+          pausadoEm: null,
+          minutosPausadosAcum: fimPausa.minutosPausadosAcum,
+        },
+      });
+
+      // Opcional: acumular correção no serviço sem finalizar
+      if (data.correcao) {
+        const trecho = `[${req.user!.matricula}] ${data.correcao}`;
+        await prisma.servico.update({
+          where: { id: servicoId },
+          data: {
+            correcao: servico.correcao ? `${servico.correcao}\n${trecho}` : trecho,
+            ...(data.correcaoAudio ? { correcaoAudio: data.correcaoAudio } : {}),
+            ...(data.fotoAntes ? { fotoAntes: data.fotoAntes } : {}),
+            ...(data.fotoDepois ? { fotoDepois: data.fotoDepois } : {}),
+          },
+        });
+      }
+
+      const updated = await prisma.servico.findUnique({
+        where: { id: servicoId },
+        include: servicoInclude,
+      });
+
+      await auditLog(req, 'FINALIZAR', 'Servico', servicoId, {
+        ...data,
+        modo: 'participante',
+      });
+      broadcast('quadro:update', null);
+      return res.json(updated);
+    }
+
     if (servico.profissionalId !== req.user!.id) {
       return res.status(403).json({ error: 'Serviço não está em sua execução' });
     }
@@ -1252,7 +1608,7 @@ router.post('/:id/finalizar', requireRole(Role.PROFISSIONAL), async (req: AuthRe
     );
 
     const updated = await prisma.servico.update({
-      where: { id: paramId(req.params.id) },
+      where: { id: servicoId },
       data: {
         ...data,
         status: StatusServico.FINALIZADO,
@@ -1265,7 +1621,7 @@ router.post('/:id/finalizar', requireRole(Role.PROFISSIONAL), async (req: AuthRe
       include: servicoInclude,
     });
 
-    await auditLog(req, 'FINALIZAR', 'Servico', paramId(req.params.id), data);
+    await auditLog(req, 'FINALIZAR', 'Servico', servicoId, data);
     broadcast('quadro:update', null);
     res.json(updated);
   } catch (err) {

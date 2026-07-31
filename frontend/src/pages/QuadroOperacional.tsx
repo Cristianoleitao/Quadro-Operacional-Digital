@@ -19,7 +19,8 @@ import {
   type SecaoQuadro,
 } from '../lib/quadro';
 import type { Servico, Garagem } from '../types';
-import { textoAguardandoPecaQuadro } from '../lib/servico';
+import { SETOR_PREFIX } from '../types';
+import { textoAguardandoPecaQuadro, isPreventivaRev, participantesAtivos, TEXTO_REVISAO_PREVENTIVA, textosPecaPendenteDoProfissional, textosPecaPendenteOrfas } from '../lib/servico';
 import { ChipSetor, classeNomeProfissionalServico, classeNomeSolicitantePeca } from '../components/BadgeSetor';
 import { InputProfissionalServico, primeiroNome } from '../components/InputProfissionalServico';
 
@@ -106,6 +107,106 @@ function CelulaServicos({
           const editando = servicoProfissionalEditando === s.id;
           const aguardandoPeca = s.status === 'AGUARDANDO_INSUMO';
           const textoAguardando = aguardandoPeca ? textoAguardandoPecaQuadro(s) : '';
+          const preventiva = isPreventivaRev(s);
+          const ativos = preventiva ? participantesAtivos(s) : [];
+
+          if (preventiva) {
+            return (
+              <Fragment key={s.id}>
+                {i > 0 && (
+                  <span
+                    className={`${estilo.separador} mx-1 font-bold self-center shrink-0 ${
+                      textoClaro ? 'text-white/70' : 'text-neutral-600'
+                    }`}
+                  >
+                    /
+                  </span>
+                )}
+                <div className="inline-flex flex-wrap items-center justify-start gap-x-1 gap-y-0.5 min-w-0 max-w-full leading-snug text-left">
+                  <span className="break-words text-left font-semibold uppercase">
+                    {TEXTO_REVISAO_PREVENTIVA}
+                  </span>
+                  {ativos.length === 0 ? (
+                    <>
+                      <ChipSetor setor="OUTRO" className="mr-0.5" />
+                      {textosPecaPendenteOrfas(s).map((peca) => (
+                        <span
+                          key={peca}
+                          className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-black uppercase bg-yellow-300 text-black"
+                          title="Peça solicitada ao estoque"
+                        >
+                          {peca}
+                        </span>
+                      ))}
+                    </>
+                  ) : (
+                    ativos.map((p, pi) => {
+                      const setorP = p.profissional?.setor ?? s.setor;
+                      const nome = p.profissional?.nome
+                        ? primeiroNome(p.profissional.nome)
+                        : SETOR_PREFIX[setorP];
+                      const obs = p.obs?.trim();
+                      const pecas = textosPecaPendenteDoProfissional(s, p.profissionalId);
+                      return (
+                        <Fragment key={p.id}>
+                          {pi > 0 && (
+                            <span
+                              className={`${estilo.separador} mx-0.5 font-bold self-center shrink-0 ${
+                                textoClaro ? 'text-white/70' : 'text-neutral-600'
+                              }`}
+                            >
+                              /
+                            </span>
+                          )}
+                          <span className="inline-flex items-center gap-x-1 flex-wrap">
+                            {obs ? (
+                              <span
+                                className="break-words font-normal uppercase text-black"
+                                title={`OBS ${SETOR_PREFIX[setorP]}`}
+                              >
+                                {obs}
+                              </span>
+                            ) : null}
+                            {pecas.map((peca) => (
+                              <span
+                                key={peca}
+                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-black uppercase bg-yellow-300 text-black"
+                                title="Peça solicitada ao estoque"
+                              >
+                                {peca}
+                              </span>
+                            ))}
+                            <span
+                              className={`${classeNomeProfissionalServico(setorP, p.pausadoEm)}`}
+                              title={p.profissional?.nome ?? SETOR_PREFIX[setorP]}
+                            >
+                              {nome}
+                            </span>
+                          </span>
+                        </Fragment>
+                      );
+                    })
+                  )}
+                  {ativos.length > 0 &&
+                    textosPecaPendenteOrfas(s).map((peca) => (
+                      <Fragment key={`orf-${peca}`}>
+                        <span
+                          className={`${estilo.separador} mx-0.5 font-bold self-center shrink-0 ${
+                            textoClaro ? 'text-white/70' : 'text-neutral-600'
+                          }`}
+                        >
+                          /
+                        </span>
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-black uppercase bg-yellow-300 text-black">
+                          {peca}
+                        </span>
+                      </Fragment>
+                    ))}
+                </div>
+              </Fragment>
+            );
+          }
+
           const badgeProfissional = classeNomeProfissionalServico(s.setor, s.pausadoEm);
           const temProfissional = Boolean(s.profissional?.nome);
           const badgeSetorOuProfissional = temProfissional ? (

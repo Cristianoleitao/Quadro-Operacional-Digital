@@ -66,6 +66,7 @@ model Usuario {
 
   servicos            Servico[] @relation("ServicoProfissional")
   servicosFinalizados Servico[] @relation("ServicoFinalizadoPor")
+  participacoes       ServicoParticipante[] @relation("ParticipanteProfissional")
   insumosSolicitados  SolicitacaoInsumo[] @relation("InsumoSolicitadoPor")
   auditorias Auditoria[]
 }
@@ -129,7 +130,28 @@ model Servico {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  insumos SolicitacaoInsumo[]
+  insumos       SolicitacaoInsumo[]
+  participantes ServicoParticipante[]
+}
+
+/** Alocação N:N para revisão preventiva (REV / OUTRO). */
+model ServicoParticipante {
+  id                  String    @id @default(uuid())
+  servicoId           String
+  servico             Servico   @relation(fields: [servicoId], references: [id], onDelete: Cascade)
+  profissionalId      String
+  profissional        Usuario   @relation("ParticipanteProfissional", fields: [profissionalId], references: [id])
+  horaAssumido        DateTime  @default(now())
+  horaInicio          DateTime?
+  horaTermino         DateTime?
+  pausadoEm           DateTime?
+  minutosPausadosAcum Int       @default(0)
+  obs                 String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([servicoId, profissionalId])
+  @@index([profissionalId, horaTermino])
 }
 
 model SolicitacaoInsumo {

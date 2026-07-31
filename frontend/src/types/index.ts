@@ -88,6 +88,18 @@ export interface HistoricoInsumo extends SolicitacaoInsumo {
   servico: Servico;
 }
 
+export interface ServicoParticipante {
+  id: string;
+  profissionalId: string;
+  profissional?: ProfissionalResumo | null;
+  horaAssumido: string;
+  horaInicio?: string | null;
+  horaTermino?: string | null;
+  pausadoEm?: string | null;
+  minutosPausadosAcum?: number;
+  obs?: string | null;
+}
+
 export interface Servico {
   id: string;
   setor: Setor;
@@ -100,6 +112,7 @@ export interface Servico {
   horaOs?: string | null;
   profissional?: ProfissionalResumo | null;
   finalizadoPor?: ProfissionalResumo | null;
+  participantes?: ServicoParticipante[];
   horaAssumido?: string | null;
   horaInicio?: string | null;
   horaTermino?: string | null;
@@ -122,7 +135,7 @@ export const SETOR_LABELS: Record<Setor, string> = {
   REFR: 'Refrigeração',
   BORR: 'Borracharia',
   LIMP: 'Limpeza',
-  OUTRO: 'Outro',
+  OUTRO: 'Revisão',
 };
 
 export const SETOR_PREFIX: Record<Setor, string> = {
@@ -133,7 +146,7 @@ export const SETOR_PREFIX: Record<Setor, string> = {
   REFR: '[REFR]',
   BORR: '[BORR]',
   LIMP: '[LIMP]',
-  OUTRO: '[OUTRO]',
+  OUTRO: '[REV]',
 };
 
 /** Cores por setor: MEC/BORR laranja, ELE azul, REFR vermelho, LANT/PINT verde, LIMP roxo. */

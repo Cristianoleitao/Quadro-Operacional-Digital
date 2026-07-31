@@ -9,7 +9,7 @@ export const SETOR_QUADRO: Record<Setor, string> = {
   REFR: 'AR',
   BORR: 'BORR',
   LIMP: 'LIMP',
-  OUTRO: 'OUTRO',
+  OUTRO: 'REV',
 };
 
 export interface SecaoQuadro {
@@ -587,7 +587,12 @@ export function veiculoTemServicoIniciado(
   const lista = statuses
     ? servicosVeiculo.filter((s) => statuses.includes(s.status))
     : servicosVeiculo;
-  return lista.some((s) => Boolean(s.profissional) || Boolean(s.horaAssumido));
+  return lista.some(
+    (s) =>
+      Boolean(s.profissional) ||
+      Boolean(s.horaAssumido) ||
+      (s.participantes?.some((p) => !p.horaTermino) ?? false),
+  );
 }
 
 /** Veículo já entrou em atendimento (assumido ou passou por aguardando peça). */
@@ -597,6 +602,7 @@ export function veiculoJaTeveAtendimentoIniciado(servicosVeiculo: Servico[]): bo
       Boolean(s.profissional) ||
       Boolean(s.horaAssumido) ||
       Boolean(s.horaInicio) ||
+      (s.participantes?.length ?? 0) > 0 ||
       (s.insumos?.some((i) => i.aguardarPeca) ?? false),
   );
 }

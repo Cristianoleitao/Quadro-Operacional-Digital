@@ -109,6 +109,44 @@ export function servicoPausado(servico: Servico): boolean {
   return Boolean(servico.pausadoEm);
 }
 
+/** Revisão preventiva multi-profissional (setor REV / OUTRO). */
+export function isPreventivaRev(servico: Pick<Servico, 'status' | 'setor'>): boolean {
+  return servico.status === 'MANUTENCAO_PREVENTIVA' && servico.setor === 'OUTRO';
+}
+
+export const TEXTO_REVISAO_PREVENTIVA = 'REVISÃO PREVENTIVA';
+
+export function participantesAtivos(servico: Servico) {
+  return (servico.participantes ?? []).filter((p) => !p.horaTermino);
+}
+
+/** Peças pendentes solicitadas por um profissional neste serviço (sem nome). */
+export function textosPecaPendenteDoProfissional(
+  servico: Servico,
+  profissionalId: string,
+): string[] {
+  return insumosPecaPendentesDoServico(servico)
+    .filter((i) => i.solicitadoPor?.id === profissionalId)
+    .map((i) => garantirPrefixoAguardando(i.descricao))
+    .filter(Boolean);
+}
+
+/** Peças pendentes sem solicitante vinculado a participante ativo. */
+export function textosPecaPendenteOrfas(servico: Servico): string[] {
+  const ativosIds = new Set(participantesAtivos(servico).map((p) => p.profissionalId));
+  return insumosPecaPendentesDoServico(servico)
+    .filter((i) => !i.solicitadoPor?.id || !ativosIds.has(i.solicitadoPor.id))
+    .map((i) => garantirPrefixoAguardando(i.descricao))
+    .filter(Boolean);
+}
+
+/** OBS da participação ativa do profissional logado (revisão preventiva). */
+export function obsParticipacaoAtual(servico: Servico, profissionalId?: string | null): string {
+  if (!profissionalId) return '';
+  const p = participantesAtivos(servico).find((x) => x.profissionalId === profissionalId);
+  return p?.obs?.trim() ?? '';
+}
+
 /** Tempo ativo em minutos (desconta pausas). Usa tempoTotalMin se já finalizado. */
 export function tempoServicoAtivoMin(servico: Servico, agora = new Date()): number | null {
   if (servico.tempoTotalMin != null) return servico.tempoTotalMin;
