@@ -112,15 +112,6 @@ export default function ProfissionalPage() {
   }, [carregar]);
 
   useEffect(() => {
-    // Espelha a transcrição ao vivo (e o texto final) no campo Correção executada
-    if (gravador.texto) {
-      setCorrecao(gravador.texto.toUpperCase());
-      return;
-    }
-    if (gravador.gravando) setCorrecao('');
-  }, [gravador.texto, gravador.gravando]);
-
-  useEffect(() => {
     if (aba !== 'execucao' || !selecionado) return;
     const atualizado = emExecucao.find((s) => s.id === selecionado.id);
     if (atualizado) setSelecionado(atualizado);
@@ -248,7 +239,7 @@ export default function ProfissionalPage() {
   const toggleGravacao = async () => {
     if (gravador.gravando) {
       const transcrito = (await gravador.parar()).trim();
-      if (transcrito) setCorrecao(transcrito.toUpperCase());
+      setCorrecao(transcrito ? transcrito.toUpperCase() : '');
     } else {
       try {
         setCorrecao('');
@@ -786,9 +777,10 @@ export default function ProfissionalPage() {
                   void finalizar();
                 }
               }}
+              readOnly={gravador.gravando}
               placeholder={
                 gravador.gravando
-                  ? 'Ouvindo… o texto aparece aqui'
+                  ? 'Ouvindo… ao parar, o texto aparece aqui'
                   : 'Correção (Enter envia) — ou use o microfone'
               }
               rows={2}
@@ -796,7 +788,7 @@ export default function ProfissionalPage() {
             />
             {gravador.gravando && (
               <p className="text-blue-300 text-[10px] mt-1 leading-tight">
-                Fale agora — a transcrição entra no campo acima para revisar e enviar
+                Fale agora e toque em Parar — só então o texto entra no campo
               </p>
             )}
             <button

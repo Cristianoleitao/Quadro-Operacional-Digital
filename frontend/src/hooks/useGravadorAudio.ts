@@ -32,8 +32,7 @@ function apiSpeechRecognition() {
 
 /**
  * Transcrição por voz (Web Speech API).
- * Não usa MediaRecorder em paralelo — no mobile os dois competem pelo microfone
- * e a transcrição falha enquanto o áudio grava.
+ * Acumula só resultados finais internamente; o texto só é publicado ao parar.
  */
 export function useGravadorAudio() {
   const [gravando, setGravando] = useState(false);
@@ -48,32 +47,21 @@ export function useGravadorAudio() {
   const gravandoRef = useRef(false);
   const reiniciarRef = useRef(false);
 
-  const atualizarTexto = useCallback((valor: string) => {
+  const publicarTexto = useCallback((valor: string) => {
     textoRef.current = valor;
     setTexto(valor);
   }, []);
 
-  const processarResultados = useCallback(
-    (event: SpeechRecognitionEvent) => {
-      let interim = '';
-      let novosFinais = '';
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const resultado = event.results[i];
-        const falado = resultado[0]?.transcript ?? '';
-        if (resultado.isFinal) novosFinais += falado;
-        else interim += falado;
-      }
-
-      if (novosFinais) {
-        finaisRef.current = `${finaisRef.current} ${novosFinais}`.replace(/\s+/g, ' ').trim();
-      }
-
-      const completo = `${finaisRef.current} ${interim}`.replace(/\s+/g, ' ').trim();
-      if (completo) atualizarTexto(completo);
-    },
-    [atualizarTexto],
-  );
+  const processarResultados = useCallback((event: SpeechRecognitionEvent) => {
+    let novosFinais = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const resultado = event.results[i];
+      if (!resultado.isFinal) continue;
+      novosFinais += resultado[0]?.transcript ?? '';
+    }
+    if (!novosFinais.trim()) return;
+    finaisRef.current = `${finaisRef.current} ${novosFinais}`.replace(/\s+/g, ' ').trim();
+  }, []);
 
   const criarReconhecimento = useCallback(() => {
     const SpeechRecognition = apiSpeechRecognition();
@@ -85,7 +73,8 @@ export function useGravadorAudio() {
     const recognition = new SpeechRecognition();
     recognition.lang = 'pt-BR';
     recognition.continuous = true;
-    recognition.interimResults = true;
+    // Sem interim: evita repetição no texto final
+    recognition.interimResults = false;
     recognition.maxAlternatives = 1;
 
     recognition.onresult = (e) => processarResultados(e);
@@ -101,14 +90,11 @@ export function useGravadorAudio() {
       if (codigo === 'network') {
         setErroVoz('Sem conexão com o serviço de voz — digite a correção');
         reiniciarRef.current = false;
-        return;
       }
-      // no-speech, aborted, audio-capture: deixam o fluxo seguir / reiniciar
     };
 
     recognition.onend = () => {
       if (!gravandoRef.current || !reiniciarRef.current) return;
-      // Mobile encerra a sessão sozinho; reinicia mantendo o texto já finalizado
       window.setTimeout(() => {
         if (!gravandoRef.current || !reiniciarRef.current || !recognitionRef.current) return;
         try {
@@ -125,7 +111,8 @@ export function useGravadorAudio() {
   const iniciar = useCallback(async () => {
     setErroVoz(null);
     finaisRef.current = '';
-    atualizarTexto('');
+    textoRef.current = '';
+    setTexto('');
     setAudioBlob(null);
 
     const recognition = criarReconhecimento();
@@ -151,7 +138,7 @@ export function useGravadorAudio() {
       setSuportaVoz(false);
       throw new Error('Não foi possível iniciar a transcrição. Digite a correção no campo.');
     }
-  }, [atualizarTexto, criarReconhecimento]);
+  }, [criarReconhecimento]);
 
   const parar = useCallback(() => {
     const recognition = recognitionRef.current;
@@ -160,7 +147,9 @@ export function useGravadorAudio() {
 
     if (!recognition) {
       setGravando(false);
-      return Promise.resolve(textoRef.current);
+      const final = finaisRef.current.trim();
+      if (final) publicarTexto(final);
+      return Promise.resolve(final);
     }
 
     return new Promise<string>((resolve) => {
@@ -170,16 +159,18 @@ export function useGravadorAudio() {
         resolvido = true;
         recognitionRef.current = null;
         setGravando(false);
-        const final = (finaisRef.current || textoRef.current).trim();
-        if (final) atualizarTexto(final);
+        const final = finaisRef.current.trim();
+        publicarTexto(final);
         resolve(final);
       };
 
-      const timeoutId = window.setTimeout(concluir, 800);
+      // Pequena espera para o último resultado final chegar após stop()
+      const timeoutId = window.setTimeout(concluir, 600);
 
       recognition.onend = () => {
         window.clearTimeout(timeoutId);
-        concluir();
+        // mais um tick para onresult atrasado no mobile
+        window.setTimeout(concluir, 150);
       };
 
       try {
@@ -189,21 +180,21 @@ export function useGravadorAudio() {
         concluir();
       }
     });
-  }, [atualizarTexto]);
+  }, [publicarTexto]);
 
   const limpar = useCallback(() => {
     finaisRef.current = '';
-    atualizarTexto('');
+    publicarTexto('');
     setAudioBlob(null);
     setErroVoz(null);
-  }, [atualizarTexto]);
+  }, [publicarTexto]);
 
-  const getTexto = useCallback(() => textoRef.current, []);
+  const getTexto = useCallback(() => textoRef.current || finaisRef.current, []);
 
   return {
     gravando,
     texto,
-    setTexto: atualizarTexto,
+    setTexto: publicarTexto,
     getTexto,
     audioBlob,
     suportaVoz,
