@@ -93,6 +93,7 @@ export default function ProfissionalPage() {
   const [insumoPosicao, setInsumoPosicao] = useState('');
   const [loading, setLoading] = useState(false);
   const [versaoLista, setVersaoLista] = useState(0);
+  const [confirmarAcao, setConfirmarAcao] = useState<'sair' | 'pausar' | null>(null);
   const gravador = useGravadorAudio();
 
   const carregar = useCallback(async () => {
@@ -111,8 +112,13 @@ export default function ProfissionalPage() {
   }, [carregar]);
 
   useEffect(() => {
-    if (gravador.texto) setCorrecao(gravador.texto.toUpperCase());
-  }, [gravador.texto]);
+    // Espelha a transcrição ao vivo (e o texto final) no campo Correção executada
+    if (gravador.texto) {
+      setCorrecao(gravador.texto.toUpperCase());
+      return;
+    }
+    if (gravador.gravando) setCorrecao('');
+  }, [gravador.texto, gravador.gravando]);
 
   useEffect(() => {
     if (aba !== 'execucao' || !selecionado) return;
@@ -144,6 +150,7 @@ export default function ProfissionalPage() {
   };
 
   const trocarAba = (novaAba: 'disponiveis' | 'execucao') => {
+    setConfirmarAcao(null);
     setAba(novaAba);
     if (novaAba === 'execucao') {
       setSelecionado((atual) =>
@@ -155,7 +162,10 @@ export default function ProfissionalPage() {
   };
 
   const selecionarServico = (s: Servico) => {
-    if (aba === 'execucao') setSelecionado(s);
+    if (aba === 'execucao') {
+      setConfirmarAcao(null);
+      setSelecionado(s);
+    }
   };
 
   const servicoEmExecucao =
@@ -237,11 +247,11 @@ export default function ProfissionalPage() {
 
   const toggleGravacao = async () => {
     if (gravador.gravando) {
-      await gravador.parar();
-      const transcrito = gravador.getTexto().trim();
+      const transcrito = (await gravador.parar()).trim();
       if (transcrito) setCorrecao(transcrito.toUpperCase());
     } else {
       try {
+        setCorrecao('');
         await gravador.iniciar();
       } catch (err) {
         alert(err instanceof Error ? err.message : 'Erro ao acessar microfone');
@@ -251,13 +261,13 @@ export default function ProfissionalPage() {
 
   const liberarServico = async () => {
     if (!servicoEmExecucao) return;
-    if (!window.confirm('Sair deste serviço sem concluir? Ele voltará para a fila.')) return;
     setLoading(true);
     try {
       await api.liberarServico(servicoEmExecucao.id);
       setSelecionado(null);
       setCorrecao('');
       gravador.limpar();
+      setConfirmarAcao(null);
       setAba('disponiveis');
       await carregar();
     } catch (err) {
@@ -275,6 +285,7 @@ export default function ProfissionalPage() {
         ? await api.despausarServico(servicoEmExecucao.id)
         : await api.pausarServico(servicoEmExecucao.id);
       setSelecionado(atualizado);
+      setConfirmarAcao(null);
       const exec = await api.getEmExecucao();
       setEmExecucao(exec);
       await carregar();
@@ -286,11 +297,19 @@ export default function ProfissionalPage() {
   };
 
   const finalizar = async () => {
-    if (gravador.gravando) await gravador.parar();
+    let textoFinal = correcao.trim();
+    if (gravador.gravando) {
+      const transcrito = (await gravador.parar()).trim();
+      if (transcrito) {
+        textoFinal = transcrito;
+        setCorrecao(transcrito.toUpperCase());
+      }
+    }
+    if (!textoFinal) textoFinal = gravador.getTexto().trim();
 
-    const textoCorrecao = (correcao.trim() || gravador.getTexto().trim()).toUpperCase();
+    const textoCorrecao = textoFinal.toUpperCase();
     if (!servicoEmExecucao || !textoCorrecao) {
-      alert('Informe a correção executada (aguarde a transcrição ou digite no campo)');
+      alert('Informe a correção executada (fale no microfone ou digite no campo)');
       return;
     }
     setLoading(true);
@@ -552,7 +571,7 @@ export default function ProfissionalPage() {
           <div className="flex flex-wrap gap-1.5 mb-2">
             <button
               type="button"
-              onClick={() => void liberarServico()}
+              onClick={() => setConfirmarAcao((a) => (a === 'sair' ? null : 'sair'))}
               disabled={loading}
               className="flex-1 min-w-[7rem] py-2 rounded text-xs font-semibold bg-slate-700 hover:bg-slate-600 text-white disabled:opacity-50"
             >
@@ -560,7 +579,13 @@ export default function ProfissionalPage() {
             </button>
             <button
               type="button"
-              onClick={() => void pausarServico()}
+              onClick={() => {
+                if (servicoPausado(servicoEmExecucao)) {
+                  void pausarServico();
+                  return;
+                }
+                setConfirmarAcao((a) => (a === 'pausar' ? null : 'pausar'));
+              }}
               disabled={loading}
               className={`flex-1 min-w-[7rem] py-2 rounded text-xs font-semibold text-white disabled:opacity-50 ${
                 servicoEmExecucao && servicoPausado(servicoEmExecucao)
@@ -571,6 +596,58 @@ export default function ProfissionalPage() {
               {servicoEmExecucao && servicoPausado(servicoEmExecucao) ? 'Retomar' : 'Pausar'}
             </button>
           </div>
+
+          {confirmarAcao === 'sair' && (
+            <div className="mb-2 rounded-md border border-slate-600 bg-slate-950 p-2.5 shadow-xl shadow-black/40">
+              <p className="text-[11px] leading-snug text-slate-300 mb-1">
+                Sair deste serviço sem concluir?
+              </p>
+              <p className="text-[10px] text-slate-500 mb-2">Ele voltará para a fila.</p>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void liberarServico()}
+                  className="flex-1 rounded bg-slate-600 px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-slate-500 disabled:opacity-50"
+                >
+                  Sim, sair
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmarAcao(null)}
+                  className="flex-1 rounded border border-slate-600 px-2 py-1.5 text-[11px] font-semibold text-slate-300 hover:bg-slate-800"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {confirmarAcao === 'pausar' && (
+            <div className="mb-2 rounded-md border border-neutral-700 bg-slate-950 p-2.5 shadow-xl shadow-black/40">
+              <p className="text-[11px] leading-snug text-slate-300 mb-1">
+                Pausar este serviço?
+              </p>
+              <p className="text-[10px] text-slate-500 mb-2">Você poderá retomar depois.</p>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void pausarServico()}
+                  className="flex-1 rounded bg-black px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-neutral-800 disabled:opacity-50"
+                >
+                  Sim, pausar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmarAcao(null)}
+                  className="flex-1 rounded border border-slate-600 px-2 py-1.5 text-[11px] font-semibold text-slate-300 hover:bg-slate-800"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
 
           {isPreventivaRev(servicoEmExecucao) && (
             <div className={`mb-2 p-2 bg-slate-900 rounded border border-sky-800/60 ${servicoPausado(servicoEmExecucao) ? 'opacity-60 pointer-events-none' : ''}`}>
@@ -712,10 +789,24 @@ export default function ProfissionalPage() {
                   void finalizar();
                 }
               }}
-              placeholder="Correção (Enter envia)"
+              placeholder={
+                gravador.gravando
+                  ? 'Ouvindo… o texto aparece aqui'
+                  : 'Correção (Enter envia) — ou grave o áudio'
+              }
               rows={2}
               className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm uppercase"
             />
+            {gravador.gravando && (
+              <p className="text-blue-300 text-[10px] mt-1 leading-tight">
+                Fale agora — a transcrição entra no campo acima para você revisar e enviar
+              </p>
+            )}
+            {gravador.audioBlob && !gravador.gravando && !correcao.trim() && (
+              <p className="text-yellow-400 text-[10px] mt-1 leading-tight">
+                Áudio gravado, mas sem texto. Digite a correção no campo para poder concluir.
+              </p>
+            )}
             {gravador.audioBlob && !gravador.gravando && (
               <audio controls src={URL.createObjectURL(gravador.audioBlob)} className="w-full mt-1 h-8" />
             )}

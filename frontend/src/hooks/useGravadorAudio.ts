@@ -10,8 +10,9 @@ interface SpeechRecognitionInstance extends EventTarget {
   interimResults: boolean;
   start: () => void;
   stop: () => void;
+  abort: () => void;
   onresult: ((event: SpeechRecognitionEvent) => void) | null;
-  onerror: ((event: Event) => void) | null;
+  onerror: ((event: Event & { error?: string }) => void) | null;
   onend: (() => void) | null;
 }
 
@@ -33,11 +34,58 @@ export function useGravadorAudio() {
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const textoRef = useRef('');
+  const gravandoRef = useRef(false);
+  const reiniciarReconhecimentoRef = useRef(false);
 
   const atualizarTexto = useCallback((valor: string) => {
     textoRef.current = valor;
     setTexto(valor);
   }, []);
+
+  const anexarResultados = useCallback((event: SpeechRecognitionEvent) => {
+    let transcript = '';
+    for (let i = 0; i < event.results.length; i++) {
+      transcript += event.results[i][0]?.transcript ?? '';
+    }
+    const limpo = transcript.trim();
+    if (limpo) atualizarTexto(limpo);
+  }, [atualizarTexto]);
+
+  const criarReconhecimento = useCallback(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setSuportaVoz(false);
+      return null;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'pt-BR';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onresult = (e) => anexarResultados(e);
+
+    recognition.onerror = (event) => {
+      // "no-speech" / "aborted" são comuns; não desliga o recurso por isso
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        setSuportaVoz(false);
+        reiniciarReconhecimentoRef.current = false;
+      }
+    };
+
+    recognition.onend = () => {
+      // No mobile o reconhecimento costuma parar sozinho; reinicia enquanto grava
+      if (gravandoRef.current && reiniciarReconhecimentoRef.current) {
+        try {
+          recognition.start();
+        } catch {
+          // ignore se já estiver ativo
+        }
+      }
+    };
+
+    return recognition;
+  }, [anexarResultados]);
 
   const iniciar = useCallback(async () => {
     try {
@@ -57,44 +105,42 @@ export function useGravadorAudio() {
       mediaRecorder.start();
       mediaRecorderRef.current = mediaRecorder;
 
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        const recognition = new SpeechRecognition();
-        recognition.lang = 'pt-BR';
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.onresult = (e) => {
-          let transcript = '';
-          for (let i = 0; i < e.results.length; i++) {
-            transcript += e.results[i][0].transcript;
-          }
-          atualizarTexto(transcript.trim());
-        };
-        recognition.onerror = () => setSuportaVoz(false);
-        recognition.start();
+      atualizarTexto('');
+      setAudioBlob(null);
+      gravandoRef.current = true;
+      reiniciarReconhecimentoRef.current = true;
+
+      const recognition = criarReconhecimento();
+      if (recognition) {
         recognitionRef.current = recognition;
-      } else {
-        setSuportaVoz(false);
+        try {
+          recognition.start();
+        } catch {
+          setSuportaVoz(false);
+        }
       }
 
       setGravando(true);
-      atualizarTexto('');
-      setAudioBlob(null);
     } catch {
+      gravandoRef.current = false;
+      reiniciarReconhecimentoRef.current = false;
       throw new Error('Permissão de microfone negada');
     }
-  }, [atualizarTexto]);
+  }, [atualizarTexto, criarReconhecimento]);
 
   const parar = useCallback(() => {
     const recorder = mediaRecorderRef.current;
     const recognition = recognitionRef.current;
 
+    gravandoRef.current = false;
+    reiniciarReconhecimentoRef.current = false;
+
     if (!recorder && !recognition) {
       setGravando(false);
-      return Promise.resolve();
+      return Promise.resolve(textoRef.current);
     }
 
-    return new Promise<void>((resolve) => {
+    return new Promise<string>((resolve) => {
       let gravacaoEncerrada = !recorder;
       let reconhecimentoEncerrado = !recognition;
 
@@ -103,7 +149,7 @@ export function useGravadorAudio() {
         mediaRecorderRef.current = null;
         recognitionRef.current = null;
         setGravando(false);
-        resolve();
+        resolve(textoRef.current);
       };
 
       if (recorder) {
@@ -115,21 +161,32 @@ export function useGravadorAudio() {
           },
           { once: true },
         );
-        recorder.stop();
+        if (recorder.state !== 'inactive') recorder.stop();
+        else {
+          gravacaoEncerrada = true;
+          concluir();
+        }
       }
 
       if (recognition) {
         const timeoutId = window.setTimeout(() => {
           reconhecimentoEncerrado = true;
           concluir();
-        }, 2500);
+        }, 1500);
 
         recognition.onend = () => {
           window.clearTimeout(timeoutId);
           reconhecimentoEncerrado = true;
           concluir();
         };
-        recognition.stop();
+
+        try {
+          recognition.stop();
+        } catch {
+          window.clearTimeout(timeoutId);
+          reconhecimentoEncerrado = true;
+          concluir();
+        }
       }
     });
   }, []);
