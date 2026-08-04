@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 
 interface SpeechRecognitionEvent extends Event {
+  resultIndex: number;
   results: SpeechRecognitionResultList;
 }
 
@@ -8,12 +9,14 @@ interface SpeechRecognitionInstance extends EventTarget {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
+  maxAlternatives: number;
   start: () => void;
   stop: () => void;
   abort: () => void;
   onresult: ((event: SpeechRecognitionEvent) => void) | null;
   onerror: ((event: Event & { error?: string }) => void) | null;
   onend: (() => void) | null;
+  onstart: (() => void) | null;
 }
 
 declare global {
@@ -23,36 +26,57 @@ declare global {
   }
 }
 
+function apiSpeechRecognition() {
+  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+}
+
+/**
+ * Transcrição por voz (Web Speech API).
+ * Não usa MediaRecorder em paralelo — no mobile os dois competem pelo microfone
+ * e a transcrição falha enquanto o áudio grava.
+ */
 export function useGravadorAudio() {
   const [gravando, setGravando] = useState(false);
   const [texto, setTexto] = useState('');
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-  const [suportaVoz, setSuportaVoz] = useState(true);
+  const [suportaVoz, setSuportaVoz] = useState(() => Boolean(apiSpeechRecognition()));
+  const [erroVoz, setErroVoz] = useState<string | null>(null);
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const textoRef = useRef('');
+  const finaisRef = useRef('');
   const gravandoRef = useRef(false);
-  const reiniciarReconhecimentoRef = useRef(false);
+  const reiniciarRef = useRef(false);
 
   const atualizarTexto = useCallback((valor: string) => {
     textoRef.current = valor;
     setTexto(valor);
   }, []);
 
-  const anexarResultados = useCallback((event: SpeechRecognitionEvent) => {
-    let transcript = '';
-    for (let i = 0; i < event.results.length; i++) {
-      transcript += event.results[i][0]?.transcript ?? '';
-    }
-    const limpo = transcript.trim();
-    if (limpo) atualizarTexto(limpo);
-  }, [atualizarTexto]);
+  const processarResultados = useCallback(
+    (event: SpeechRecognitionEvent) => {
+      let interim = '';
+      let novosFinais = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const resultado = event.results[i];
+        const falado = resultado[0]?.transcript ?? '';
+        if (resultado.isFinal) novosFinais += falado;
+        else interim += falado;
+      }
+
+      if (novosFinais) {
+        finaisRef.current = `${finaisRef.current} ${novosFinais}`.replace(/\s+/g, ' ').trim();
+      }
+
+      const completo = `${finaisRef.current} ${interim}`.replace(/\s+/g, ' ').trim();
+      if (completo) atualizarTexto(completo);
+    },
+    [atualizarTexto],
+  );
 
   const criarReconhecimento = useCallback(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition = apiSpeechRecognition();
     if (!SpeechRecognition) {
       setSuportaVoz(false);
       return null;
@@ -62,138 +86,116 @@ export function useGravadorAudio() {
     recognition.lang = 'pt-BR';
     recognition.continuous = true;
     recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
 
-    recognition.onresult = (e) => anexarResultados(e);
+    recognition.onresult = (e) => processarResultados(e);
 
     recognition.onerror = (event) => {
-      // "no-speech" / "aborted" são comuns; não desliga o recurso por isso
-      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+      const codigo = event.error ?? '';
+      if (codigo === 'not-allowed' || codigo === 'service-not-allowed') {
         setSuportaVoz(false);
-        reiniciarReconhecimentoRef.current = false;
+        setErroVoz('Permissão de microfone negada para transcrição');
+        reiniciarRef.current = false;
+        return;
       }
+      if (codigo === 'network') {
+        setErroVoz('Sem conexão com o serviço de voz — digite a correção');
+        reiniciarRef.current = false;
+        return;
+      }
+      // no-speech, aborted, audio-capture: deixam o fluxo seguir / reiniciar
     };
 
     recognition.onend = () => {
-      // No mobile o reconhecimento costuma parar sozinho; reinicia enquanto grava
-      if (gravandoRef.current && reiniciarReconhecimentoRef.current) {
+      if (!gravandoRef.current || !reiniciarRef.current) return;
+      // Mobile encerra a sessão sozinho; reinicia mantendo o texto já finalizado
+      window.setTimeout(() => {
+        if (!gravandoRef.current || !reiniciarRef.current || !recognitionRef.current) return;
         try {
-          recognition.start();
+          recognitionRef.current.start();
         } catch {
-          // ignore se já estiver ativo
+          // já ativo
         }
-      }
+      }, 120);
     };
 
     return recognition;
-  }, [anexarResultados]);
+  }, [processarResultados]);
 
   const iniciar = useCallback(async () => {
+    setErroVoz(null);
+    finaisRef.current = '';
+    atualizarTexto('');
+    setAudioBlob(null);
+
+    const recognition = criarReconhecimento();
+    if (!recognition) {
+      setSuportaVoz(false);
+      throw new Error(
+        'Transcrição por voz indisponível neste navegador. Digite a correção no campo.',
+      );
+    }
+
+    recognitionRef.current = recognition;
+    gravandoRef.current = true;
+    reiniciarRef.current = true;
+    setGravando(true);
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-
-      const mediaRecorder = new MediaRecorder(stream);
-      chunksRef.current = [];
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      mediaRecorder.onstop = () => {
-        setAudioBlob(new Blob(chunksRef.current, { type: 'audio/webm' }));
-        stream.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      };
-      mediaRecorder.start();
-      mediaRecorderRef.current = mediaRecorder;
-
-      atualizarTexto('');
-      setAudioBlob(null);
-      gravandoRef.current = true;
-      reiniciarReconhecimentoRef.current = true;
-
-      const recognition = criarReconhecimento();
-      if (recognition) {
-        recognitionRef.current = recognition;
-        try {
-          recognition.start();
-        } catch {
-          setSuportaVoz(false);
-        }
-      }
-
-      setGravando(true);
+      recognition.start();
     } catch {
       gravandoRef.current = false;
-      reiniciarReconhecimentoRef.current = false;
-      throw new Error('Permissão de microfone negada');
+      reiniciarRef.current = false;
+      recognitionRef.current = null;
+      setGravando(false);
+      setSuportaVoz(false);
+      throw new Error('Não foi possível iniciar a transcrição. Digite a correção no campo.');
     }
   }, [atualizarTexto, criarReconhecimento]);
 
   const parar = useCallback(() => {
-    const recorder = mediaRecorderRef.current;
     const recognition = recognitionRef.current;
-
     gravandoRef.current = false;
-    reiniciarReconhecimentoRef.current = false;
+    reiniciarRef.current = false;
 
-    if (!recorder && !recognition) {
+    if (!recognition) {
       setGravando(false);
       return Promise.resolve(textoRef.current);
     }
 
     return new Promise<string>((resolve) => {
-      let gravacaoEncerrada = !recorder;
-      let reconhecimentoEncerrado = !recognition;
-
+      let resolvido = false;
       const concluir = () => {
-        if (!gravacaoEncerrada || !reconhecimentoEncerrado) return;
-        mediaRecorderRef.current = null;
+        if (resolvido) return;
+        resolvido = true;
         recognitionRef.current = null;
         setGravando(false);
-        resolve(textoRef.current);
+        const final = (finaisRef.current || textoRef.current).trim();
+        if (final) atualizarTexto(final);
+        resolve(final);
       };
 
-      if (recorder) {
-        recorder.addEventListener(
-          'stop',
-          () => {
-            gravacaoEncerrada = true;
-            concluir();
-          },
-          { once: true },
-        );
-        if (recorder.state !== 'inactive') recorder.stop();
-        else {
-          gravacaoEncerrada = true;
-          concluir();
-        }
-      }
+      const timeoutId = window.setTimeout(concluir, 800);
 
-      if (recognition) {
-        const timeoutId = window.setTimeout(() => {
-          reconhecimentoEncerrado = true;
-          concluir();
-        }, 1500);
+      recognition.onend = () => {
+        window.clearTimeout(timeoutId);
+        concluir();
+      };
 
-        recognition.onend = () => {
-          window.clearTimeout(timeoutId);
-          reconhecimentoEncerrado = true;
-          concluir();
-        };
-
-        try {
-          recognition.stop();
-        } catch {
-          window.clearTimeout(timeoutId);
-          reconhecimentoEncerrado = true;
-          concluir();
-        }
+      try {
+        recognition.stop();
+      } catch {
+        window.clearTimeout(timeoutId);
+        concluir();
       }
     });
-  }, []);
+  }, [atualizarTexto]);
 
   const limpar = useCallback(() => {
+    finaisRef.current = '';
     atualizarTexto('');
     setAudioBlob(null);
+    setErroVoz(null);
   }, [atualizarTexto]);
 
   const getTexto = useCallback(() => textoRef.current, []);
@@ -205,6 +207,7 @@ export function useGravadorAudio() {
     getTexto,
     audioBlob,
     suportaVoz,
+    erroVoz,
     iniciar,
     parar,
     limpar,

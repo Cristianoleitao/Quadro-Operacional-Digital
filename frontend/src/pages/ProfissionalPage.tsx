@@ -314,14 +314,8 @@ export default function ProfissionalPage() {
     }
     setLoading(true);
     try {
-      let correcaoAudio: string | undefined;
-      if (gravador.audioBlob) {
-        const { url } = await api.uploadAudio(gravador.audioBlob);
-        correcaoAudio = url;
-      }
       await api.finalizarServico(servicoEmExecucao.id, {
         correcao: textoCorrecao,
-        correcaoAudio,
       });
       setSelecionado(null);
       setCorrecao('');
@@ -766,19 +760,22 @@ export default function ProfissionalPage() {
             <button
               type="button"
               onClick={toggleGravacao}
-              disabled={loading}
+              disabled={loading || !gravador.suportaVoz}
               className={`w-full py-1.5 rounded font-semibold text-xs mb-1.5 ${
                 gravador.gravando
                   ? 'bg-red-600 hover:bg-red-500 animate-pulse'
                   : 'bg-blue-600 hover:bg-blue-500'
-              } text-white`}
+              } text-white disabled:opacity-50`}
             >
-              {gravador.gravando ? '⏹ Parar' : '🎤 Gravar áudio'}
+              {gravador.gravando ? '⏹ Parar transcrição' : '🎤 Falar correção'}
             </button>
             {!gravador.suportaVoz && (
               <p className="text-yellow-400 text-[10px] mb-1 leading-tight">
-                Transcrição automática indisponível neste navegador — digite a correção no campo abaixo
+                Transcrição por voz indisponível neste navegador — digite a correção abaixo
               </p>
+            )}
+            {gravador.erroVoz && (
+              <p className="text-yellow-400 text-[10px] mb-1 leading-tight">{gravador.erroVoz}</p>
             )}
             <textarea
               value={correcao}
@@ -792,23 +789,15 @@ export default function ProfissionalPage() {
               placeholder={
                 gravador.gravando
                   ? 'Ouvindo… o texto aparece aqui'
-                  : 'Correção (Enter envia) — ou grave o áudio'
+                  : 'Correção (Enter envia) — ou use o microfone'
               }
               rows={2}
               className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm uppercase"
             />
             {gravador.gravando && (
               <p className="text-blue-300 text-[10px] mt-1 leading-tight">
-                Fale agora — a transcrição entra no campo acima para você revisar e enviar
+                Fale agora — a transcrição entra no campo acima para revisar e enviar
               </p>
-            )}
-            {gravador.audioBlob && !gravador.gravando && !correcao.trim() && (
-              <p className="text-yellow-400 text-[10px] mt-1 leading-tight">
-                Áudio gravado, mas sem texto. Digite a correção no campo para poder concluir.
-              </p>
-            )}
-            {gravador.audioBlob && !gravador.gravando && (
-              <audio controls src={URL.createObjectURL(gravador.audioBlob)} className="w-full mt-1 h-8" />
             )}
             <button
               type="submit"
