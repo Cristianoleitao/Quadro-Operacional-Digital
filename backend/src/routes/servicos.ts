@@ -626,7 +626,8 @@ router.get('/meus', async (req: AuthRequest, res: Response) => {
       where: {
         setor: Setor.OUTRO,
         status: StatusServico.MANUTENCAO_PREVENTIVA,
-        participantes: { none: { profissionalId: user.id, horaTermino: null } },
+        // Já assumiu (ativo ou concluído) → não listar de novo
+        participantes: { none: { profissionalId: user.id } },
         ...filtroGaragem,
       },
       include: servicoInclude,
@@ -697,19 +698,62 @@ router.get('/meu-historico', requireRole(Role.PROFISSIONAL), async (req: AuthReq
   const desde = new Date();
   desde.setDate(desde.getDate() - dias);
   desde.setHours(0, 0, 0, 0);
+  const userId = req.user!.id;
 
-  const servicos = await prisma.servico.findMany({
-    where: {
-      finalizadoPorId: req.user!.id,
-      status: { in: [StatusServico.FINALIZADO, StatusServico.CONCLUIDO] },
-      horaTermino: { gte: desde },
-    },
-    include: servicoInclude,
-    orderBy: { horaTermino: 'desc' },
-    take: 100,
+  const [servicos, participacoes] = await Promise.all([
+    prisma.servico.findMany({
+      where: {
+        finalizadoPorId: userId,
+        status: { in: [StatusServico.FINALIZADO, StatusServico.CONCLUIDO] },
+        horaTermino: { gte: desde },
+      },
+      include: servicoInclude,
+      orderBy: { horaTermino: 'desc' },
+      take: 100,
+    }),
+    prisma.servicoParticipante.findMany({
+      where: {
+        profissionalId: userId,
+        horaTermino: { gte: desde, not: null },
+      },
+      include: {
+        profissional: profissionalResumoSelect,
+        servico: { include: servicoInclude },
+      },
+      orderBy: { horaTermino: 'desc' },
+      take: 100,
+    }),
+  ]);
+
+  const idsCorretivos = new Set(servicos.map((s) => s.id));
+  const doParticipante = participacoes
+    .filter((p) => p.servico && !idsCorretivos.has(p.servicoId))
+    .map((p) => ({
+      ...p.servico!,
+      // Exibe o setor do profissional no histórico (não OUTRO/REV)
+      setor: p.profissional.setor ?? p.servico!.setor,
+      descricao: p.servico!.descricao?.includes('TESTE POS')
+        ? p.servico!.descricao
+        : 'REVISÃO PREVENTIVA',
+      horaAssumido: p.horaAssumido,
+      horaInicio: p.horaInicio,
+      horaTermino: p.horaTermino,
+      tempoTotalMin: p.tempoTotalMin,
+      pausadoEm: null,
+      minutosPausadosAcum: p.minutosPausadosAcum,
+      correcao: p.correcao ?? p.servico!.correcao,
+      profissional: p.profissional,
+      finalizadoPor: p.profissional,
+      status: StatusServico.FINALIZADO,
+    }));
+
+  const lista = [...servicos, ...doParticipante].sort((a, b) => {
+    const ta = a.horaTermino ? new Date(a.horaTermino).getTime() : 0;
+    const tb = b.horaTermino ? new Date(b.horaTermino).getTime() : 0;
+    return tb - ta;
   });
 
-  res.json(await enriquecerVeiculosLista(servicos));
+  res.json(await enriquecerVeiculosLista(lista.slice(0, 100)));
 });
 
 router.get('/acompanhamento', requireRole(Role.ADMINISTRADOR), async (_req, res: Response) => {
@@ -1032,6 +1076,17 @@ router.post('/:id/assumir', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
     if (servico.participantes.some((p) => p.profissionalId === req.user!.id)) {
       return res.status(409).json({ error: 'Você já está alocado nesta revisão' });
     }
+    const jaParticipou = await prisma.servicoParticipante.findFirst({
+      where: { servicoId: servico.id, profissionalId: req.user!.id },
+      select: { id: true, horaTermino: true },
+    });
+    if (jaParticipou) {
+      return res.status(409).json({
+        error: jaParticipou.horaTermino
+          ? 'Você já concluiu sua parte nesta revisão'
+          : 'Você já está alocado nesta revisão',
+      });
+    }
 
     await prisma.servicoParticipante.create({
       data: {
@@ -1041,6 +1096,14 @@ router.post('/:id/assumir', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
         horaInicio: agora,
       },
     });
+
+    // Se estava em teste pós revisão e alguém assume de novo, volta o texto
+    if ((servico.descricao ?? '').toUpperCase().includes('TESTE POS')) {
+      await prisma.servico.update({
+        where: { id: servico.id },
+        data: { descricao: 'REVISÃO PREVENTIVA' },
+      });
+    }
 
     const updated = await prisma.servico.findUnique({
       where: { id: servico.id },
@@ -1668,28 +1731,42 @@ router.post('/:id/finalizar', requireRole(Role.PROFISSIONAL), async (req: AuthRe
       }
 
       const fimPausa = encerrarPausaServico(participacao, agora);
+      const tempoTotalMin = minutosTrabalhadosServico(
+        {
+          horaInicio: participacao.horaInicio,
+          pausadoEm: null,
+          minutosPausadosAcum: fimPausa.minutosPausadosAcum,
+        },
+        agora,
+      );
+
       await prisma.servicoParticipante.update({
         where: { id: participacao.id },
         data: {
           horaTermino: agora,
           pausadoEm: null,
           minutosPausadosAcum: fimPausa.minutosPausadosAcum,
+          correcao: data.correcao,
+          tempoTotalMin,
         },
       });
 
-      // Opcional: acumular correção no serviço sem finalizar
-      if (data.correcao) {
-        const trecho = `[${req.user!.matricula}] ${data.correcao}`;
-        await prisma.servico.update({
-          where: { id: servicoId },
-          data: {
-            correcao: servico.correcao ? `${servico.correcao}\n${trecho}` : trecho,
-            ...(data.correcaoAudio ? { correcaoAudio: data.correcaoAudio } : {}),
-            ...(data.fotoAntes ? { fotoAntes: data.fotoAntes } : {}),
-            ...(data.fotoDepois ? { fotoDepois: data.fotoDepois } : {}),
-          },
-        });
-      }
+      const restantesAtivos = await prisma.servicoParticipante.count({
+        where: { servicoId, horaTermino: null },
+      });
+
+      const trecho = `[${req.user!.matricula}] ${data.correcao}`;
+      await prisma.servico.update({
+        where: { id: servicoId },
+        data: {
+          correcao: servico.correcao ? `${servico.correcao}\n${trecho}` : trecho,
+          ...(data.correcaoAudio ? { correcaoAudio: data.correcaoAudio } : {}),
+          ...(data.fotoAntes ? { fotoAntes: data.fotoAntes } : {}),
+          ...(data.fotoDepois ? { fotoDepois: data.fotoDepois } : {}),
+          // Todos os setores/participantes concluiram → teste pós revisão
+          ...(restantesAtivos === 0 ? { descricao: 'TESTE POS REVISÃO' } : {}),
+        },
+      });
 
       const updated = await prisma.servico.findUnique({
         where: { id: servicoId },
@@ -1699,6 +1776,8 @@ router.post('/:id/finalizar', requireRole(Role.PROFISSIONAL), async (req: AuthRe
       await auditLog(req, 'FINALIZAR', 'Servico', servicoId, {
         ...data,
         modo: 'participante',
+        tempoTotalMin,
+        testePosRevisao: restantesAtivos === 0,
       });
       broadcast('quadro:update', null);
       return res.json(updated);

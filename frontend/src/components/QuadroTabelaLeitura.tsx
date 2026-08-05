@@ -15,7 +15,7 @@ import {
   type LinhaVeiculoQuadro,
   type SecaoQuadro,
 } from '../lib/quadro';
-import { textoAguardandoPecaQuadro, isPreventivaRev, participantesAtivos, TEXTO_REVISAO_PREVENTIVA, textosPecaPendenteDoProfissional, textosPecaPendenteOrfas } from '../lib/servico';
+import { textoAguardandoPecaQuadro, isPreventivaRev, participantesAtivos, textoPreventivaRev, textosPecaPendenteDoProfissional, textosPecaPendenteOrfas } from '../lib/servico';
 import { ChipSetor, classeNomeProfissionalServico, classeNomeSolicitantePeca } from './BadgeSetor';
 import { primeiroNome } from './InputProfissionalServico';
 import { SETOR_PREFIX } from '../types';
@@ -61,7 +61,7 @@ function CelulaServicosLeitura({
                 )}
                 <div className="inline-flex flex-wrap items-center justify-start gap-x-1 gap-y-0.5 min-w-0 leading-snug text-left">
                   <span className="break-words text-left font-semibold uppercase">
-                    {TEXTO_REVISAO_PREVENTIVA}
+                    {textoPreventivaRev(s)}
                   </span>
                   {ativos.length === 0 ? (
                     <>

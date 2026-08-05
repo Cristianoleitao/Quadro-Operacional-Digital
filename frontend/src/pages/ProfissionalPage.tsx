@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { api, connectWebSocket } from '../lib/api';
-import { veiculoNumero, numeroOsExibicao, formatInsumoCodigo, servicoPausado, isPreventivaRev, TEXTO_REVISAO_PREVENTIVA, obsParticipacaoAtual } from '../lib/servico';
+import { veiculoNumero, numeroOsExibicao, formatInsumoCodigo, servicoPausado, isPreventivaRev, textoPreventivaRev, obsParticipacaoAtual } from '../lib/servico';
 import { tituloSecaoServico, agruparPorSecao, saidaVeiculoQuadro, idsVeiculosSaidaPrioritariaPorServicos, ordenarServicosPorPrioridadeSaida, ordenarCorretivaProfissional, servicoExibeHoraSaida, mapaServicosPorVeiculo, servicoSujeitoPrazoInicio, infoPrazoInicioProfissional, classeBordaCardPrazoProfissional, type AlertaPrazoVeiculo } from '../lib/quadro';
 import { useAuth } from '../context/AuthContext';
 import { useGravadorAudio } from '../hooks/useGravadorAudio';
@@ -472,7 +472,7 @@ export default function ProfissionalPage() {
                   {isPreventivaRev(s) ? (
                     <>
                       <BadgeSetor setor={s.setor} className="mr-1" />
-                      {TEXTO_REVISAO_PREVENTIVA}
+                      {textoPreventivaRev(s)}
                     </>
                   ) : (
                     <>

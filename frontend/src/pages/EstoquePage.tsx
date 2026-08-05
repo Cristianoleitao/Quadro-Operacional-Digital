@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { api, connectWebSocket } from '../lib/api';
-import { veiculoNumero, numeroOsExibicao, isPreventivaRev, TEXTO_REVISAO_PREVENTIVA } from '../lib/servico';
+import { veiculoNumero, numeroOsExibicao, isPreventivaRev, textoPreventivaRev } from '../lib/servico';
 import { useAuth } from '../context/AuthContext';
 import type { Servico } from '../types';
 import { BadgeSetor } from '../components/BadgeSetor';
@@ -117,7 +117,7 @@ export default function EstoquePage() {
                       <div>
                         <p className="text-white font-semibold">
                           <BadgeSetor setor={s.setor} />{' '}
-                          {isPreventivaRev(s) ? TEXTO_REVISAO_PREVENTIVA : s.descricao}
+                          {isPreventivaRev(s) ? textoPreventivaRev(s) : s.descricao}
                         </p>
                         <p className="text-slate-500 text-xs mt-1">
                           OS {numeroOsExibicao(s)}

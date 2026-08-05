@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { api, connectWebSocket, mediaUrl } from '../lib/api';
 import { SETOR_QUADRO, SECOES_QUADRO, secaoDoVeiculoQuadro } from '../lib/quadro';
-import { veiculoNumero, textoAguardandoPecaQuadro, textoInsumoExibicao, formatInsumoCodigo, nomeCompletoProfissionalSolicitouPeca, tempoServicoAtivoMin, isPreventivaRev, participantesAtivos, TEXTO_REVISAO_PREVENTIVA, textosPecaPendenteDoProfissional, textosPecaPendenteOrfas } from '../lib/servico';
+import { veiculoNumero, textoAguardandoPecaQuadro, textoInsumoExibicao, formatInsumoCodigo, nomeCompletoProfissionalSolicitouPeca, tempoServicoAtivoMin, isPreventivaRev, participantesAtivos, textoPreventivaRev, textosPecaPendenteDoProfissional, textosPecaPendenteOrfas } from '../lib/servico';
 import {
   InputHoraVeiculo,
   InputOsVeiculo,
@@ -378,7 +378,7 @@ function CelulasServicosAgregados({
               ) : isPreventivaRev(s) ? (
                 <div className={`flex flex-wrap items-center gap-1 ${classeItemServicoAdmin(true)}`}>
                   <span className="font-semibold uppercase text-xs">
-                    {TEXTO_REVISAO_PREVENTIVA}
+                    {textoPreventivaRev(s)}
                   </span>
                   {participantesAtivos(s).length === 0 ? (
                     <>

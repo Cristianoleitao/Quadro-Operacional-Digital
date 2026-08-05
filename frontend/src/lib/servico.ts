@@ -115,6 +115,15 @@ export function isPreventivaRev(servico: Pick<Servico, 'status' | 'setor'>): boo
 }
 
 export const TEXTO_REVISAO_PREVENTIVA = 'REVISÃO PREVENTIVA';
+export const TEXTO_TESTE_POS_REVISAO = 'TESTE POS REVISÃO';
+
+/** Texto da célula no quadro/admin: preventiva ou teste pós revisão. */
+export function textoPreventivaRev(servico: Pick<Servico, 'status' | 'setor' | 'descricao'>): string {
+  if (!isPreventivaRev(servico)) return servico.descricao;
+  const d = (servico.descricao ?? '').trim().toUpperCase();
+  if (d.includes('TESTE POS')) return TEXTO_TESTE_POS_REVISAO;
+  return TEXTO_REVISAO_PREVENTIVA;
+}
 
 export function participantesAtivos(servico: Servico) {
   return (servico.participantes ?? []).filter((p) => !p.horaTermino);

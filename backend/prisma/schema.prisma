@@ -147,6 +147,8 @@ model ServicoParticipante {
   pausadoEm           DateTime?
   minutosPausadosAcum Int       @default(0)
   obs                 String?
+  correcao            String?
+  tempoTotalMin       Int?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 

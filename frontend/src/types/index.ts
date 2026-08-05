@@ -98,6 +98,8 @@ export interface ServicoParticipante {
   pausadoEm?: string | null;
   minutosPausadosAcum?: number;
   obs?: string | null;
+  correcao?: string | null;
+  tempoTotalMin?: number | null;
 }
 
 export interface Servico {
