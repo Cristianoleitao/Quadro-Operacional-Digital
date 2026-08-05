@@ -470,10 +470,7 @@ export default function ProfissionalPage() {
               <div className="flex-1 min-w-0">
                 <p className="text-slate-300 min-w-0 break-words">
                   {isPreventivaRev(s) ? (
-                    <>
-                      <BadgeSetor setor={s.setor} className="mr-1" />
-                      {textoPreventivaRev(s)}
-                    </>
+                    <span className="font-semibold uppercase">{textoPreventivaRev(s)}</span>
                   ) : (
                     <>
                       <BadgeSetor setor={s.setor} className="mr-1" />

@@ -33,7 +33,6 @@ const servicoInclude = {
   profissional: profissionalResumoSelect,
   finalizadoPor: profissionalResumoSelect,
   participantes: {
-    where: { horaTermino: null },
     include: { profissional: profissionalResumoSelect },
     orderBy: { horaAssumido: 'asc' as const },
   },

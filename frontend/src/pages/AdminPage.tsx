@@ -3,13 +3,13 @@ import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { api, connectWebSocket, mediaUrl } from '../lib/api';
 import { SETOR_QUADRO, SECOES_QUADRO, secaoDoVeiculoQuadro } from '../lib/quadro';
-import { veiculoNumero, textoAguardandoPecaQuadro, textoInsumoExibicao, formatInsumoCodigo, nomeCompletoProfissionalSolicitouPeca, tempoServicoAtivoMin, isPreventivaRev, participantesAtivos, textoPreventivaRev, textosPecaPendenteDoProfissional, textosPecaPendenteOrfas } from '../lib/servico';
+import { veiculoNumero, textoAguardandoPecaQuadro, textoInsumoExibicao, formatInsumoCodigo, nomeCompletoProfissionalSolicitouPeca, tempoServicoAtivoMin, isPreventivaRev, participantesExibicao, textoPreventivaRev, textosPecaPendenteDoProfissional, textosPecaPendenteOrfas } from '../lib/servico';
 import {
   InputHoraVeiculo,
   InputOsVeiculo,
 } from '../components/DadosVeiculoQuadroInputs';
 import { InputProfissionalServico, primeiroNome } from '../components/InputProfissionalServico';
-import { classeNomeProfissionalServico, classeNomeSolicitantePeca, ChipSetor } from '../components/BadgeSetor';
+import { classeNomeProfissionalServico, classeNomeSolicitantePeca } from '../components/BadgeSetor';
 import { InputLocalExternoServico } from '../components/InputLocalExternoServico';
 import { SelectSetorServico } from '../components/SelectSetorServico';
 import { useAuth } from '../context/AuthContext';
@@ -380,67 +380,54 @@ function CelulasServicosAgregados({
                   <span className="font-semibold uppercase text-xs">
                     {textoPreventivaRev(s)}
                   </span>
-                  {participantesAtivos(s).length === 0 ? (
-                    <>
-                      <ChipSetor setor="OUTRO" />
-                      {textosPecaPendenteOrfas(s).map((peca) => (
-                        <span
-                          key={peca}
-                          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase bg-yellow-300 text-black"
-                        >
-                          {peca}
-                        </span>
-                      ))}
-                    </>
-                  ) : (
-                    participantesAtivos(s).map((p, pi) => {
-                      const setorP = p.profissional?.setor ?? s.setor;
-                      const obs = p.obs?.trim();
-                      const pecas = textosPecaPendenteDoProfissional(s, p.profissionalId);
-                      return (
-                        <Fragment key={p.id}>
-                          {pi > 0 && (
-                            <span className="text-slate-500 font-bold mx-0.5">/</span>
-                          )}
-                          <span className="inline-flex items-center gap-1 flex-wrap">
-                            {obs ? (
-                              <span
-                                className="text-xs font-normal uppercase text-black"
-                                title={`OBS ${SETOR_PREFIX[setorP]}`}
-                              >
-                                {obs}
-                              </span>
-                            ) : null}
-                            {pecas.map((peca) => (
-                              <span
-                                key={peca}
-                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase bg-yellow-300 text-black"
-                              >
-                                {peca}
-                              </span>
-                            ))}
+                  {participantesExibicao(s).map((p, pi) => {
+                    const setorP = p.profissional?.setor ?? s.setor;
+                    const obs = !p.horaTermino ? p.obs?.trim() : undefined;
+                    const pecas = !p.horaTermino
+                      ? textosPecaPendenteDoProfissional(s, p.profissionalId)
+                      : [];
+                    return (
+                      <Fragment key={p.id}>
+                        {pi > 0 && (
+                          <span className="text-slate-500 font-bold mx-0.5">/</span>
+                        )}
+                        <span className="inline-flex items-center gap-1 flex-wrap">
+                          {obs ? (
                             <span
-                              className={classeNomeProfissionalServico(setorP, p.pausadoEm)}
-                              title={p.profissional?.nome ?? SETOR_PREFIX[setorP]}
+                              className="text-xs font-normal uppercase text-black"
+                              title={`OBS ${SETOR_PREFIX[setorP]}`}
                             >
-                              {p.profissional?.nome
-                                ? primeiroNome(p.profissional.nome)
-                                : SETOR_PREFIX[setorP]}
+                              {obs}
                             </span>
+                          ) : null}
+                          {pecas.map((peca) => (
+                            <span
+                              key={peca}
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase bg-yellow-300 text-black"
+                            >
+                              {peca}
+                            </span>
+                          ))}
+                          <span
+                            className={classeNomeProfissionalServico(setorP, p.pausadoEm)}
+                            title={p.profissional?.nome ?? SETOR_PREFIX[setorP]}
+                          >
+                            {p.profissional?.nome
+                              ? primeiroNome(p.profissional.nome)
+                              : SETOR_PREFIX[setorP]}
                           </span>
-                        </Fragment>
-                      );
-                    })
-                  )}
-                  {participantesAtivos(s).length > 0 &&
-                    textosPecaPendenteOrfas(s).map((peca) => (
-                      <Fragment key={`orf-${peca}`}>
-                        <span className="text-slate-500 font-bold mx-0.5">/</span>
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase bg-yellow-300 text-black">
-                          {peca}
                         </span>
                       </Fragment>
-                    ))}
+                    );
+                  })}
+                  {textosPecaPendenteOrfas(s).map((peca) => (
+                    <Fragment key={`orf-${peca}`}>
+                      <span className="text-slate-500 font-bold mx-0.5">/</span>
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase bg-yellow-300 text-black">
+                        {peca}
+                      </span>
+                    </Fragment>
+                  ))}
                 </div>
               ) : (
                 <span className={`break-words ${classeItemServicoAdmin(true)}`}>
@@ -461,10 +448,10 @@ function CelulasServicosAgregados({
                 <span className="text-slate-500">—</span>
               ) : isPreventivaRev(s) ? (
                 <div className="flex flex-wrap gap-1">
-                  {participantesAtivos(s).length === 0 ? (
+                  {participantesExibicao(s).length === 0 ? (
                     <span className="text-slate-500 text-xs">Aguardando alocação</span>
                   ) : (
-                    participantesAtivos(s).map((p) => {
+                    participantesExibicao(s).map((p) => {
                       const setorP = p.profissional?.setor ?? s.setor;
                       return (
                         <span

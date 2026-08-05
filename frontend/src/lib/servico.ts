@@ -129,6 +129,16 @@ export function participantesAtivos(servico: Servico) {
   return (servico.participantes ?? []).filter((p) => !p.horaTermino);
 }
 
+/**
+ * Badges no quadro/admin: prioriza quem está ativo;
+ * se ninguém ativo (ex.: TESTE POS REVISÃO), mostra quem já concluiu.
+ */
+export function participantesExibicao(servico: Servico) {
+  const todos = servico.participantes ?? [];
+  const ativos = todos.filter((p) => !p.horaTermino);
+  return ativos.length > 0 ? ativos : todos;
+}
+
 /** Peças pendentes solicitadas por um profissional neste serviço (sem nome). */
 export function textosPecaPendenteDoProfissional(
   servico: Servico,
