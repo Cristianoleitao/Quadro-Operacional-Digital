@@ -1701,6 +1701,128 @@ router.patch('/insumos/:id/atender', requireRole(Role.ADMINISTRADOR, Role.ESTOQU
   }
 });
 
+/** Desmarca atendimento (volta a pendente) — mantém o controle sem estornar. */
+router.patch(
+  '/insumos/:id/desatender',
+  requireRole(Role.ADMINISTRADOR, Role.ESTOQUE),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const insumoId = paramId(req.params.id);
+
+      const insumo = await prisma.solicitacaoInsumo.findUnique({
+        where: { id: insumoId },
+        include: { servico: true },
+      });
+
+      if (!insumo) {
+        return res.status(404).json({ error: 'Insumo não encontrado' });
+      }
+
+      if (req.user!.role === Role.ESTOQUE && !insumo.aguardarPeca) {
+        return res.status(403).json({ error: 'Estoque só pode alterar solicitações de aguardando peça' });
+      }
+
+      if (!insumo.atendido) {
+        return res.status(400).json({ error: 'Insumo ainda não foi atendido' });
+      }
+
+      if (
+        insumo.servico.status === StatusServico.FINALIZADO ||
+        insumo.servico.status === StatusServico.CONCLUIDO
+      ) {
+        return res.status(400).json({ error: 'Serviço já finalizado' });
+      }
+
+      await prisma.solicitacaoInsumo.update({
+        where: { id: insumoId },
+        data: { atendido: false },
+      });
+
+      if (insumo.aguardarPeca && !isPreventivaRev(insumo.servico)) {
+        await aplicarAguardandoInsumoNoVeiculo(insumo.servico.veiculoId);
+      }
+
+      const servicoAtualizado = await prisma.servico.findUnique({
+        where: { id: insumo.servicoId },
+        include: servicoInclude,
+      });
+
+      await auditLog(req, 'DESATENDER_INSUMO', 'SolicitacaoInsumo', insumoId, {
+        servicoId: insumo.servicoId,
+        descricao: insumo.descricao,
+      });
+      broadcast('quadro:update', null);
+
+      res.json(servicoAtualizado);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Erro interno' });
+    }
+  },
+);
+
+/** Estorno: remove solicitação (código errado, devolução, etc.) — atendida ou não. */
+router.delete(
+  '/insumos/:id',
+  requireRole(Role.ADMINISTRADOR),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const insumoId = paramId(req.params.id);
+
+      const insumo = await prisma.solicitacaoInsumo.findUnique({
+        where: { id: insumoId },
+        include: { servico: { include: { insumos: true } } },
+      });
+
+      if (!insumo) {
+        return res.status(404).json({ error: 'Insumo não encontrado' });
+      }
+
+      const { servicoId, veiculoId } = {
+        servicoId: insumo.servicoId,
+        veiculoId: insumo.servico.veiculoId,
+      };
+      const eraPeca = insumo.aguardarPeca;
+      const estavaPendente = !insumo.atendido;
+
+      await prisma.solicitacaoInsumo.delete({ where: { id: insumoId } });
+
+      if (eraPeca && estavaPendente) {
+        await restaurarVeiculoSeSemPecaPendente(veiculoId);
+      } else if (!eraPeca && estavaPendente) {
+        const restantes = await prisma.solicitacaoInsumo.findMany({
+          where: { servicoId },
+        });
+        const pendentes = restantes.filter((i) => !i.atendido);
+        if (pendentes.length === 0 && insumo.servico.status === StatusServico.AGUARDANDO_INSUMO) {
+          await prisma.servico.update({
+            where: { id: servicoId },
+            data: { status: StatusServico.EM_EXECUCAO },
+          });
+        }
+      }
+
+      const servicoAtualizado = await prisma.servico.findUnique({
+        where: { id: servicoId },
+        include: servicoInclude,
+      });
+
+      await auditLog(req, 'ESTORNAR_INSUMO', 'SolicitacaoInsumo', insumoId, {
+        servicoId,
+        descricao: insumo.descricao,
+        atendido: insumo.atendido,
+        aguardarPeca: insumo.aguardarPeca,
+      });
+      broadcast('quadro:update', null);
+
+      res.json(servicoAtualizado);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Erro interno' });
+    }
+  },
+);
+
 const finalizarSchema = z.object({
   correcao: z.string().min(1),
   correcaoAudio: z.string().optional(),
@@ -1754,7 +1876,22 @@ router.post('/:id/finalizar', requireRole(Role.PROFISSIONAL), async (req: AuthRe
         where: { servicoId, horaTermino: null },
       });
 
-      const trecho = `[${req.user!.matricula}] ${data.correcao}`;
+      const concluidos = await prisma.servicoParticipante.findMany({
+        where: { servicoId, horaTermino: { not: null } },
+        include: { profissional: { select: { setor: true } } },
+      });
+      const setoresConcluidos = new Set(
+        concluidos.map((p) => p.profissional.setor).filter((s): s is Setor => Boolean(s)),
+      );
+      const todosSetoresOk = SETORES_PREVENTIVA.every((s) => setoresConcluidos.has(s));
+      const testePosRevisao = restantesAtivos === 0 && todosSetoresOk;
+
+      const profissional = await prisma.usuario.findUnique({
+        where: { id: req.user!.id },
+        select: { nome: true },
+      });
+      const nomeProfissional = profissional?.nome?.trim() || req.user!.matricula;
+      const trecho = `${data.correcao} - ${nomeProfissional}`;
       await prisma.servico.update({
         where: { id: servicoId },
         data: {
@@ -1762,8 +1899,7 @@ router.post('/:id/finalizar', requireRole(Role.PROFISSIONAL), async (req: AuthRe
           ...(data.correcaoAudio ? { correcaoAudio: data.correcaoAudio } : {}),
           ...(data.fotoAntes ? { fotoAntes: data.fotoAntes } : {}),
           ...(data.fotoDepois ? { fotoDepois: data.fotoDepois } : {}),
-          // Todos os setores/participantes concluiram → teste pós revisão
-          ...(restantesAtivos === 0 ? { descricao: 'TESTE POS REVISÃO' } : {}),
+          ...(testePosRevisao ? { descricao: 'TESTE POS REVISÃO' } : {}),
         },
       });
 
@@ -1776,7 +1912,7 @@ router.post('/:id/finalizar', requireRole(Role.PROFISSIONAL), async (req: AuthRe
         ...data,
         modo: 'participante',
         tempoTotalMin,
-        testePosRevisao: restantesAtivos === 0,
+        testePosRevisao,
       });
       broadcast('quadro:update', null);
       return res.json(updated);

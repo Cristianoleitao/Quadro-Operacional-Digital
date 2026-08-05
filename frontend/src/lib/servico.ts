@@ -1,4 +1,5 @@
-import type { ProfissionalResumo, Servico } from '../types';
+import type { ProfissionalResumo, Servico, Setor } from '../types';
+import { SETOR_PREFIX } from '../types';
 
 export function veiculoNumero(s: Servico): string {
   return s.veiculo?.numero ?? s.ordemServico?.veiculo?.numero ?? '—';
@@ -117,11 +118,24 @@ export function isPreventivaRev(servico: Pick<Servico, 'status' | 'setor'>): boo
 export const TEXTO_REVISAO_PREVENTIVA = 'REVISÃO PREVENTIVA';
 export const TEXTO_TESTE_POS_REVISAO = 'TESTE POS REVISÃO';
 
+/** Setores que participam da revisão preventiva no quadro. */
+export const SETORES_PREVENTIVA: Setor[] = ['MEC', 'ELE', 'REFR', 'LANT', 'PINT', 'BORR'];
+
 /** Texto da célula no quadro/admin: preventiva ou teste pós revisão. */
-export function textoPreventivaRev(servico: Pick<Servico, 'status' | 'setor' | 'descricao'>): string {
+export function textoPreventivaRev(servico: Pick<Servico, 'status' | 'setor' | 'descricao' | 'participantes'>): string {
   if (!isPreventivaRev(servico)) return servico.descricao;
   const d = (servico.descricao ?? '').trim().toUpperCase();
   if (d.includes('TESTE POS')) return TEXTO_TESTE_POS_REVISAO;
+
+  const todos = servico.participantes ?? [];
+  const temAtivo = todos.some((p) => !p.horaTermino);
+  if (!temAtivo) {
+    const setoresOk = SETORES_PREVENTIVA.every((setor) =>
+      todos.some((p) => p.profissional?.setor === setor && Boolean(p.horaTermino)),
+    );
+    if (setoresOk) return TEXTO_TESTE_POS_REVISAO;
+  }
+
   return TEXTO_REVISAO_PREVENTIVA;
 }
 
@@ -129,10 +143,63 @@ export function participantesAtivos(servico: Servico) {
   return (servico.participantes ?? []).filter((p) => !p.horaTermino);
 }
 
+export type BadgePreventivaQuadro =
+  | { tipo: 'setor'; key: string; setor: Setor }
+  | {
+      tipo: 'profissional';
+      key: string;
+      setor: Setor;
+      nome: string;
+      pausadoEm?: string | null;
+      obs?: string | null;
+      profissionalId: string;
+    };
+
 /**
- * Badges no quadro/admin: prioriza quem está ativo;
- * se ninguém ativo (ex.: TESTE POS REVISÃO), mostra quem já concluiu.
+ * Quadro TV — por setor da preventiva:
+ * - pendente → chip do setor
+ * - assumido → badge com o nome
+ * - concluído → some
+ * Em TESTE POS REVISÃO → lista vazia (só o texto).
  */
+export function badgesPreventivaQuadro(servico: Servico): BadgePreventivaQuadro[] {
+  if (!isPreventivaRev(servico)) return [];
+  if (textoPreventivaRev(servico) === TEXTO_TESTE_POS_REVISAO) return [];
+
+  const todos = servico.participantes ?? [];
+  const badges: BadgePreventivaQuadro[] = [];
+
+  for (const setor of SETORES_PREVENTIVA) {
+    const doSetor = todos.filter((p) => p.profissional?.setor === setor);
+    const ativos = doSetor.filter((p) => !p.horaTermino);
+    const concluiu = doSetor.some((p) => Boolean(p.horaTermino));
+
+    if (ativos.length > 0) {
+      for (const p of ativos) {
+        const nomeCompleto = p.profissional?.nome?.trim() ?? '';
+        const nome = nomeCompleto.split(/\s+/)[0]?.toUpperCase() || SETOR_PREFIX[setor];
+        badges.push({
+          tipo: 'profissional',
+          key: p.id,
+          setor,
+          nome,
+          pausadoEm: p.pausadoEm,
+          obs: p.obs,
+          profissionalId: p.profissionalId,
+        });
+      }
+      continue;
+    }
+
+    if (!concluiu) {
+      badges.push({ tipo: 'setor', key: `setor-${setor}`, setor });
+    }
+  }
+
+  return badges;
+}
+
+/** @deprecated Preferir badgesPreventivaQuadro no quadro TV. */
 export function participantesExibicao(servico: Servico) {
   const todos = servico.participantes ?? [];
   const ativos = todos.filter((p) => !p.horaTermino);

@@ -3,13 +3,24 @@ import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { api, connectWebSocket, mediaUrl } from '../lib/api';
 import { SETOR_QUADRO, SECOES_QUADRO, secaoDoVeiculoQuadro } from '../lib/quadro';
-import { veiculoNumero, textoAguardandoPecaQuadro, textoInsumoExibicao, formatInsumoCodigo, nomeCompletoProfissionalSolicitouPeca, tempoServicoAtivoMin, isPreventivaRev, participantesExibicao, textoPreventivaRev, textosPecaPendenteDoProfissional, textosPecaPendenteOrfas } from '../lib/servico';
+import {
+  veiculoNumero,
+  textoAguardandoPecaQuadro,
+  textoInsumoExibicao,
+  formatInsumoCodigo,
+  nomeCompletoProfissionalSolicitouPeca,
+  tempoServicoAtivoMin,
+  isPreventivaRev,
+  badgesPreventivaQuadro,
+  textoPreventivaRev,
+  TEXTO_TESTE_POS_REVISAO,
+} from '../lib/servico';
 import {
   InputHoraVeiculo,
   InputOsVeiculo,
 } from '../components/DadosVeiculoQuadroInputs';
 import { InputProfissionalServico, primeiroNome } from '../components/InputProfissionalServico';
-import { classeNomeProfissionalServico, classeNomeSolicitantePeca } from '../components/BadgeSetor';
+import { classeNomeProfissionalServico, classeNomeSolicitantePeca, BadgesPreventivaQuadro } from '../components/BadgeSetor';
 import { InputLocalExternoServico } from '../components/InputLocalExternoServico';
 import { SelectSetorServico } from '../components/SelectSetorServico';
 import { useAuth } from '../context/AuthContext';
@@ -24,6 +35,46 @@ function formatHora(d?: string | null) {
 }
 
 function textoOQueFoiFeito(s: Servico): string {
+  if (isPreventivaRev(s)) {
+    const linhas = (s.participantes ?? [])
+      .filter((p) => Boolean(p.horaTermino))
+      .slice()
+      .sort((a, b) => {
+        const ta = a.horaTermino ? new Date(a.horaTermino).getTime() : 0;
+        const tb = b.horaTermino ? new Date(b.horaTermino).getTime() : 0;
+        return ta - tb;
+      })
+      .map((p) => {
+        const nome = p.profissional?.nome?.trim();
+        const texto = p.correcao?.trim();
+        if (texto && nome) return `${texto} - ${nome}`;
+        if (texto) return texto;
+        if (nome) return `- ${nome}`;
+        return '';
+      })
+      .filter(Boolean);
+
+    if (linhas.length > 0) return linhas.join('\n');
+
+    // Legado: "[matricula/nome] texto" → "texto - nome"
+    const bruto = s.correcao?.trim() ?? '';
+    if (!bruto) return '';
+    return bruto
+      .split('\n')
+      .map((linha) => {
+        const m = linha.match(/^\[([^\]]+)\]\s*(.*)$/);
+        if (!m) return linha;
+        const quem = m[1]?.trim() ?? '';
+        const oque = m[2]?.trim() ?? '';
+        if (oque && quem) return `${oque} - ${quem}`;
+        if (oque) return oque;
+        if (quem) return `- ${quem}`;
+        return linha;
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+
   const correcao = s.correcao?.trim() ?? '';
   const finalizador = s.finalizadoPor?.nome ?? s.profissional?.nome;
 
@@ -81,18 +132,26 @@ function ItemSolicitacaoAdmin({
   servico,
   aguardarPeca,
   onAtender,
+  onDesatender,
+  onEstornar,
 }: {
   insumo: { id: string; descricao: string; quantidade?: number; posicao?: string | null; atendido: boolean };
   servico: Servico;
   aguardarPeca: boolean;
   onAtender: (insumoId: string) => void;
+  onDesatender: (insumoId: string) => void;
+  onEstornar: (insumoId: string) => void;
 }) {
   const [copiado, setCopiado] = useState(false);
+  const [confirmarEstorno, setConfirmarEstorno] = useState(false);
   const textoExibir = aguardarPeca
     ? insumo.descricao
     : textoInsumoExibicao(insumo.descricao, insumo.quantidade ?? 1, insumo.posicao);
-  const podeAtender =
-    !insumo.atendido && servico.status !== 'FINALIZADO' && servico.status !== 'CONCLUIDO';
+  const servicoAberto =
+    servico.status !== 'FINALIZADO' && servico.status !== 'CONCLUIDO';
+  const podeAtender = !insumo.atendido && servicoAberto;
+  const podeDesatender = insumo.atendido && servicoAberto;
+  const podeEstornar = servico.status !== 'CONCLUIDO';
 
   const copiar = async () => {
     try {
@@ -105,31 +164,80 @@ function ItemSolicitacaoAdmin({
   };
 
   return (
-    <li className="flex items-center justify-between gap-3 bg-slate-900/50 rounded px-3 py-2">
-      <span className={`min-w-0 break-words ${insumo.atendido ? 'text-green-400 line-through' : ''}`}>
-        {textoExibir}
-        {insumo.atendido && ' ✓ Atendido'}
-      </span>
-      <div className="flex items-center gap-2 shrink-0">
-        {!aguardarPeca && (
-          <button
-            type="button"
-            onClick={copiar}
-            className="text-xs font-semibold text-blue-300 hover:text-white whitespace-nowrap"
-          >
-            {copiado ? 'Copiado!' : 'Copiar'}
-          </button>
-        )}
-        {podeAtender && (
-          <button
-            type="button"
-            onClick={() => onAtender(insumo.id)}
-            className="bg-green-600 hover:bg-green-500 text-white text-xs font-semibold px-3 py-1 rounded whitespace-nowrap"
-          >
-            Marcar como atendido
-          </button>
-        )}
+    <li className="bg-slate-900/50 rounded px-3 py-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className={`min-w-0 break-words ${insumo.atendido ? 'text-green-400 line-through' : ''}`}>
+          {textoExibir}
+          {insumo.atendido && ' ✓ Atendido'}
+        </span>
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+          {!aguardarPeca && (
+            <button
+              type="button"
+              onClick={copiar}
+              className="text-xs font-semibold text-blue-300 hover:text-white whitespace-nowrap"
+            >
+              {copiado ? 'Copiado!' : 'Copiar'}
+            </button>
+          )}
+          {podeAtender && (
+            <button
+              type="button"
+              onClick={() => onAtender(insumo.id)}
+              className="bg-green-600 hover:bg-green-500 text-white text-xs font-semibold px-3 py-1 rounded whitespace-nowrap"
+            >
+              Marcar como atendido
+            </button>
+          )}
+          {podeDesatender && (
+            <button
+              type="button"
+              onClick={() => onDesatender(insumo.id)}
+              className="bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold px-3 py-1 rounded whitespace-nowrap"
+            >
+              Desmarcar atendido
+            </button>
+          )}
+          {podeEstornar && !confirmarEstorno && (
+            <button
+              type="button"
+              onClick={() => setConfirmarEstorno(true)}
+              className="text-xs font-semibold text-red-300 hover:text-red-200 whitespace-nowrap"
+            >
+              Estornar
+            </button>
+          )}
+        </div>
       </div>
+      {confirmarEstorno && (
+        <div className="mt-2 rounded border border-red-900/70 bg-slate-950 p-2.5">
+          <p className="text-[11px] leading-snug text-slate-300 mb-1">
+            Estornar esta solicitação?
+          </p>
+          <p className="text-[10px] text-slate-500 mb-2">
+            Use em caso de código errado ou devolução. A solicitação será removida.
+          </p>
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmarEstorno(false);
+                onEstornar(insumo.id);
+              }}
+              className="flex-1 rounded bg-red-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-red-500"
+            >
+              Sim, estornar
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmarEstorno(false)}
+              className="flex-1 rounded border border-slate-600 px-2 py-1 text-[10px] font-semibold text-slate-300 hover:bg-slate-800"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
     </li>
   );
 }
@@ -138,11 +246,15 @@ function ListaSolicitacoesAdmin({
   servico,
   aguardarPeca,
   onAtender,
+  onDesatender,
+  onEstornar,
   apenasPendentes = false,
 }: {
   servico: Servico;
   aguardarPeca: boolean;
   onAtender: (insumoId: string) => void;
+  onDesatender: (insumoId: string) => void;
+  onEstornar: (insumoId: string) => void;
   apenasPendentes?: boolean;
 }) {
   const itens = (servico.insumos ?? []).filter(
@@ -159,6 +271,8 @@ function ListaSolicitacoesAdmin({
           servico={servico}
           aguardarPeca={aguardarPeca}
           onAtender={onAtender}
+          onDesatender={onDesatender}
+          onEstornar={onEstornar}
         />
       ))}
     </ul>
@@ -376,59 +490,9 @@ function CelulasServicosAgregados({
                   />
                 </div>
               ) : isPreventivaRev(s) ? (
-                <div className={`flex flex-wrap items-center gap-1 ${classeItemServicoAdmin(true)}`}>
-                  <span className="font-semibold uppercase text-xs">
-                    {textoPreventivaRev(s)}
-                  </span>
-                  {participantesExibicao(s).map((p, pi) => {
-                    const setorP = p.profissional?.setor ?? s.setor;
-                    const obs = !p.horaTermino ? p.obs?.trim() : undefined;
-                    const pecas = !p.horaTermino
-                      ? textosPecaPendenteDoProfissional(s, p.profissionalId)
-                      : [];
-                    return (
-                      <Fragment key={p.id}>
-                        {pi > 0 && (
-                          <span className="text-slate-500 font-bold mx-0.5">/</span>
-                        )}
-                        <span className="inline-flex items-center gap-1 flex-wrap">
-                          {obs ? (
-                            <span
-                              className="text-xs font-normal uppercase text-black"
-                              title={`OBS ${SETOR_PREFIX[setorP]}`}
-                            >
-                              {obs}
-                            </span>
-                          ) : null}
-                          {pecas.map((peca) => (
-                            <span
-                              key={peca}
-                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase bg-yellow-300 text-black"
-                            >
-                              {peca}
-                            </span>
-                          ))}
-                          <span
-                            className={classeNomeProfissionalServico(setorP, p.pausadoEm)}
-                            title={p.profissional?.nome ?? SETOR_PREFIX[setorP]}
-                          >
-                            {p.profissional?.nome
-                              ? primeiroNome(p.profissional.nome)
-                              : SETOR_PREFIX[setorP]}
-                          </span>
-                        </span>
-                      </Fragment>
-                    );
-                  })}
-                  {textosPecaPendenteOrfas(s).map((peca) => (
-                    <Fragment key={`orf-${peca}`}>
-                      <span className="text-slate-500 font-bold mx-0.5">/</span>
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase bg-yellow-300 text-black">
-                        {peca}
-                      </span>
-                    </Fragment>
-                  ))}
-                </div>
+                <span className={`font-semibold uppercase text-xs ${classeItemServicoAdmin(true)}`}>
+                  {textoPreventivaRev(s)}
+                </span>
               ) : (
                 <span className={`break-words ${classeItemServicoAdmin(true)}`}>
                   {s.descricao}
@@ -448,22 +512,18 @@ function CelulasServicosAgregados({
                 <span className="text-slate-500">—</span>
               ) : isPreventivaRev(s) ? (
                 <div className="flex flex-wrap gap-1">
-                  {participantesExibicao(s).length === 0 ? (
-                    <span className="text-slate-500 text-xs">Aguardando alocação</span>
+                  {badgesPreventivaQuadro(s).length === 0 ? (
+                    <span className="text-slate-500 text-xs">
+                      {textoPreventivaRev(s) === TEXTO_TESTE_POS_REVISAO
+                        ? 'Teste pós revisão'
+                        : 'Aguardando alocação'}
+                    </span>
                   ) : (
-                    participantesExibicao(s).map((p) => {
-                      const setorP = p.profissional?.setor ?? s.setor;
-                      return (
-                        <span
-                          key={p.id}
-                          className={classeNomeProfissionalServico(setorP, p.pausadoEm)}
-                        >
-                          {p.profissional?.nome
-                            ? primeiroNome(p.profissional.nome)
-                            : SETOR_PREFIX[setorP]}
-                        </span>
-                      );
-                    })
+                    <BadgesPreventivaQuadro
+                      servico={s}
+                      separadorClassName="text-slate-500"
+                      pecaClassName="text-[10px]"
+                    />
                   )}
                 </div>
               ) : (
@@ -724,6 +784,24 @@ export default function AdminPage() {
       carregar();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Erro ao atender insumo');
+    }
+  };
+
+  const desatenderInsumo = async (insumoId: string) => {
+    try {
+      await api.desatenderInsumo(insumoId);
+      carregar();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao desmarcar insumo');
+    }
+  };
+
+  const estornarInsumo = async (insumoId: string) => {
+    try {
+      await api.estornarInsumo(insumoId);
+      carregar();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao estornar insumo');
     }
   };
 
@@ -1170,8 +1248,9 @@ export default function AdminPage() {
                                   <ListaSolicitacoesAdmin
                                     servico={s}
                                     aguardarPeca
-                                    apenasPendentes
                                     onAtender={atenderInsumo}
+                                    onDesatender={desatenderInsumo}
+                                    onEstornar={estornarInsumo}
                                   />
                                 </div>
                                 <div className="col-span-2">
@@ -1180,6 +1259,8 @@ export default function AdminPage() {
                                     servico={s}
                                     aguardarPeca={false}
                                     onAtender={atenderInsumo}
+                                    onDesatender={desatenderInsumo}
+                                    onEstornar={estornarInsumo}
                                   />
                                 </div>
                                 {(s.fotoAntes || s.fotoDepois) && (

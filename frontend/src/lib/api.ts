@@ -273,6 +273,12 @@ export const api = {
   atenderInsumo: (insumoId: string) =>
     request<Servico>(`/servicos/insumos/${insumoId}/atender`, { method: 'PATCH' }),
 
+  desatenderInsumo: (insumoId: string) =>
+    request<Servico>(`/servicos/insumos/${insumoId}/desatender`, { method: 'PATCH' }),
+
+  estornarInsumo: (insumoId: string) =>
+    request<Servico>(`/servicos/insumos/${insumoId}`, { method: 'DELETE' }),
+
   uploadAudio: async (file: Blob) => {
     const token = getToken();
     const form = new FormData();
