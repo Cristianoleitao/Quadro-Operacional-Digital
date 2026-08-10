@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function Login() {
@@ -27,69 +27,79 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-900 px-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">Quadro Operacional Digital</h1>
-          <p className="text-slate-400">Oficina de Manutenção de Ônibus</p>
+    <div className="min-h-screen flex flex-col bg-slate-900">
+      <header className="shrink-0 border-b border-slate-700 bg-slate-950/80">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
+          <div className="min-w-0">
+            <h1 className="truncate text-base font-bold tracking-tight text-white sm:text-xl">
+              Quadro Operacional Digital
+            </h1>
+            <p className="truncate text-xs text-slate-400 sm:text-sm">
+              Oficina de Manutenção de Ônibus
+            </p>
+          </div>
+          <nav className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <Link
+              to="/cadastro"
+              className="rounded-lg border border-emerald-500/50 bg-emerald-700 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-emerald-600"
+            >
+              Cadastro
+            </Link>
+            <Link
+              to="/quadro"
+              className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm font-semibold text-slate-100 transition hover:bg-slate-700"
+            >
+              Quadro TV
+            </Link>
+          </nav>
         </div>
+      </header>
 
-        <form onSubmit={handleSubmit} className="bg-slate-800 rounded-xl p-8 shadow-2xl border border-slate-700">
-          {erro && (
-            <div className="mb-4 p-3 bg-red-900/50 border border-red-600 rounded text-red-200 text-sm">
-              {erro}
-            </div>
-          )}
-
-          <label className="block mb-4">
-            <span className="text-slate-300 text-sm font-medium">Matrícula</span>
-            <input
-              type="text"
-              value={matricula}
-              onChange={(e) => setMatricula(e.target.value)}
-              className="mt-1 w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500"
-              placeholder="Ex: MEC001"
-              required
-            />
-          </label>
-
-          <label className="block mb-6">
-            <span className="text-slate-300 text-sm font-medium">Senha</span>
-            <input
-              type="password"
-              value={senha}
-              onChange={(e) => setSenha(e.target.value)}
-              className="mt-1 w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500"
-              required
-            />
-          </label>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold py-3 rounded-lg transition"
+      <main className="flex flex-1 items-center justify-center px-4 py-8">
+        <div className="w-full max-w-md">
+          <form
+            onSubmit={handleSubmit}
+            className="rounded-xl border border-slate-700 bg-slate-800 p-8 shadow-2xl"
           >
-            {loading ? 'Entrando...' : 'Entrar'}
-          </button>
-        </form>
+            {erro && (
+              <div className="mb-4 rounded border border-red-600 bg-red-900/50 p-3 text-sm text-red-200">
+                {erro}
+              </div>
+            )}
 
-        <div className="mt-4 flex flex-col gap-3">
-          <button
-            type="button"
-            onClick={() => navigate('/cadastro')}
-            className="w-full bg-emerald-700 hover:bg-emerald-600 text-white font-semibold py-3 rounded-lg transition border border-emerald-500/50"
-          >
-            Cadastrar
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('/quadro')}
-            className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium py-2.5 rounded-lg transition border border-slate-600"
-          >
-            Quadro Operacional (TV)
-          </button>
+            <label className="mb-4 block">
+              <span className="text-sm font-medium text-slate-300">Matrícula</span>
+              <input
+                type="text"
+                value={matricula}
+                onChange={(e) => setMatricula(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-4 py-3 text-white focus:border-blue-500 focus:outline-none"
+                placeholder="Ex: MEC001"
+                required
+              />
+            </label>
+
+            <label className="mb-6 block">
+              <span className="text-sm font-medium text-slate-300">Senha</span>
+              <input
+                type="password"
+                value={senha}
+                onChange={(e) => setSenha(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-4 py-3 text-white focus:border-blue-500 focus:outline-none"
+                required
+              />
+            </label>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-lg bg-blue-600 py-3 font-semibold text-white transition hover:bg-blue-500 disabled:opacity-50"
+            >
+              {loading ? 'Entrando...' : 'Entrar'}
+            </button>
+          </form>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
