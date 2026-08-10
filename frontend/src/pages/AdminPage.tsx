@@ -19,7 +19,7 @@ import {
   InputHoraVeiculo,
   InputOsVeiculo,
 } from '../components/DadosVeiculoQuadroInputs';
-import { InputProfissionalServico, primeiroNome } from '../components/InputProfissionalServico';
+import { InputProfissionalServico } from '../components/InputProfissionalServico';
 import { classeNomeProfissionalServico, classeNomeSolicitantePeca, BadgesPreventivaQuadro } from '../components/BadgeSetor';
 import { InputLocalExternoServico } from '../components/InputLocalExternoServico';
 import { SelectSetorServico } from '../components/SelectSetorServico';

@@ -18,7 +18,6 @@ import {
 import { textoAguardandoPecaQuadro, isPreventivaRev, textoPreventivaRev } from '../lib/servico';
 import { ChipSetor, classeNomeProfissionalServico, classeNomeSolicitantePeca, BadgesPreventivaQuadro } from './BadgeSetor';
 import { primeiroNome } from './InputProfissionalServico';
-import { SETOR_PREFIX } from '../types';
 
 const COLUNAS = [
   { key: 'carro', label: 'CARRO' },

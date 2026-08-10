@@ -19,7 +19,6 @@ import {
   type SecaoQuadro,
 } from '../lib/quadro';
 import type { Servico, Garagem } from '../types';
-import { SETOR_PREFIX } from '../types';
 import { textoAguardandoPecaQuadro, isPreventivaRev, textoPreventivaRev } from '../lib/servico';
 import { ChipSetor, classeNomeProfissionalServico, classeNomeSolicitantePeca, BadgesPreventivaQuadro } from '../components/BadgeSetor';
 import { InputProfissionalServico, primeiroNome } from '../components/InputProfissionalServico';
