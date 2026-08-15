@@ -15,7 +15,7 @@ import {
   type LinhaVeiculoQuadro,
   type SecaoQuadro,
 } from '../lib/quadro';
-import { textoAguardandoPecaQuadro, isPreventivaRev, textoPreventivaRev } from '../lib/servico';
+import { textoAguardandoPecaQuadro, isMultiParticipante, textoPreventivaRev } from '../lib/servico';
 import { ChipSetor, classeNomeProfissionalServico, classeNomeSolicitantePeca, BadgesPreventivaQuadro } from './BadgeSetor';
 import { primeiroNome } from './InputProfissionalServico';
 
@@ -43,7 +43,7 @@ function CelulaServicosLeitura({
         {servicos.map((s, i) => {
           const aguardandoPeca = s.status === 'AGUARDANDO_INSUMO';
           const textoAguardando = aguardandoPeca ? textoAguardandoPecaQuadro(s) : '';
-          const preventiva = isPreventivaRev(s);
+          const preventiva = isMultiParticipante(s);
 
           if (preventiva) {
             return (

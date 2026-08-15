@@ -35,6 +35,7 @@ export const CORES_SETOR: Record<string, string> = {
   PINT: '#16a34a',
   LIMP: '#9333ea',
   OUTRO: '#64748b',
+  PENDENTE: '#64748b',
 };
 
 export const CORES_STATUS: Record<string, string> = {

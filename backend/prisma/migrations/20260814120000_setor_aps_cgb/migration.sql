@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "Setor" ADD VALUE 'APS';
+ALTER TYPE "Setor" ADD VALUE 'CGB';

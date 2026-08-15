@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
+import { HeaderPublico } from '../components/HeaderPublico';
+import { BotaoVoltarLogin } from '../components/BotaoVoltarLogin';
 import {
   destinoPosCadastro,
   labelSetorCadastro,
@@ -107,16 +109,17 @@ export default function CadastroProfissionalPage() {
 
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col">
-      <header className="bg-slate-950 border-b border-slate-700 px-6 py-4">
-        <h1 className="text-2xl font-bold">Cadastro de usuário</h1>
-        <p className="text-slate-400 text-sm">Crie sua conta para acessar o sistema</p>
-      </header>
+      <HeaderPublico />
 
       <main className="flex-1 flex items-start justify-center p-6">
         <form
           onSubmit={salvar}
           className="w-full max-w-md space-y-4 bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-xl"
         >
+          <div>
+            <h2 className="text-xl font-bold">Cadastro de usuário</h2>
+            <p className="text-slate-400 text-sm mt-1">Crie sua conta para acessar o sistema</p>
+          </div>
           <div>
             <label className="block text-sm text-slate-400 mb-1">Tipo</label>
             <select
@@ -235,12 +238,9 @@ export default function CadastroProfissionalPage() {
             {loading ? 'Cadastrando...' : 'Cadastrar'}
           </button>
 
-          <p className="text-center text-sm text-slate-400">
-            Já tem conta?{' '}
-            <Link to="/login" className="text-blue-400 hover:text-blue-300 font-medium">
-              Entrar
-            </Link>
-          </p>
+          <div className="flex justify-center pt-1">
+            <BotaoVoltarLogin className="w-full" />
+          </div>
         </form>
       </main>
     </div>

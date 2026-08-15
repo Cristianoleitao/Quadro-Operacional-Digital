@@ -21,6 +21,9 @@ export const SETOR_LABELS: Record<Setor, string> = {
   BORR: 'Borracharia',
   LIMP: 'Limpeza',
   OUTRO: 'Revisão',
+  PENDENTE: 'A definir',
+  APS: 'Revisão Anápolis',
+  CGB: 'Revisão Cuiabá',
 };
 
 export const SETOR_PREFIX: Record<Setor, string> = {
@@ -32,6 +35,9 @@ export const SETOR_PREFIX: Record<Setor, string> = {
   BORR: '[BORR]',
   LIMP: '[LIMP]',
   OUTRO: '[REV]',
+  PENDENTE: '[MOT]',
+  APS: '[APS]',
+  CGB: '[CGB]',
 };
 
 export const STATUS_LABELS: Record<string, string> = {

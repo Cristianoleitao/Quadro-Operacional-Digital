@@ -181,11 +181,22 @@ export const api = {
 
   cadastroRapido: (data: {
     veiculoNumero: string;
-    setor: string;
+    setor?: string;
     descricao: string;
     garagemId: string;
   }) =>
     request<{ servico: Servico }>('/servicos/cadastro-rapido', { method: 'POST', body: JSON.stringify(data) }),
+
+  cadastroRevisao: (data: {
+    veiculoNumero: string;
+    tipo: 'REVISAO_PREVENTIVA' | 'CHECKLIST_15000';
+    garagemId: string;
+    itens: Array<{ setor: string; ordem: number; descricao: string; quantidade?: number }>;
+  }) =>
+    request<{ servico: Servico; reutilizado?: boolean; mensagem?: string }>(
+      '/servicos/cadastro-revisao',
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
 
   atualizarDadosVeiculoQuadro: (
     id: string,
@@ -218,6 +229,12 @@ export const api = {
     request<Servico>(`/servicos/${id}/obs-participante`, {
       method: 'PATCH',
       body: JSON.stringify({ obs }),
+    }),
+
+  conferirChecklistItem: (servicoId: string, itemId: string, conferido: boolean) =>
+    request<Servico>(`/servicos/${servicoId}/checklist/${itemId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ conferido }),
     }),
 
   atualizarStatus: (id: string, status: string, descricaoPeca?: string) =>

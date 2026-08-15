@@ -4,7 +4,7 @@ import { SETOR_QUADRO } from '../lib/quadro';
 import type { Setor } from '../types';
 import { SETOR_CORES } from '../types';
 
-const SETORES: Setor[] = ['MEC', 'ELE', 'LANT', 'PINT', 'REFR', 'BORR', 'LIMP', 'OUTRO'];
+const SETORES: Setor[] = ['PENDENTE', 'MEC', 'ELE', 'LANT', 'PINT', 'REFR', 'BORR', 'LIMP', 'OUTRO', 'APS', 'CGB'];
 
 interface SelectSetorServicoProps {
   servicoId: string;

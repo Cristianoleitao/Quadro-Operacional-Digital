@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { api, connectWebSocket } from '../lib/api';
-import { veiculoNumero, numeroOsExibicao, formatInsumoCodigo, servicoPausado, isPreventivaRev, textoPreventivaRev, obsParticipacaoAtual } from '../lib/servico';
+import { veiculoNumero, numeroOsExibicao, formatInsumoCodigo, servicoPausado, isMultiParticipante, textoPreventivaRev, itensChecklistDoSetor } from '../lib/servico';
 import { tituloSecaoServico, agruparPorSecao, saidaVeiculoQuadro, idsVeiculosSaidaPrioritariaPorServicos, ordenarServicosPorPrioridadeSaida, ordenarCorretivaProfissional, servicoExibeHoraSaida, mapaServicosPorVeiculo, servicoSujeitoPrazoInicio, infoPrazoInicioProfissional, classeBordaCardPrazoProfissional, type AlertaPrazoVeiculo } from '../lib/quadro';
 import { useAuth } from '../context/AuthContext';
 import { useGravadorAudio } from '../hooks/useGravadorAudio';
@@ -86,7 +86,6 @@ export default function ProfissionalPage() {
   const [aba, setAba] = useState<'disponiveis' | 'execucao'>('disponiveis');
 
   const [correcao, setCorrecao] = useState('');
-  const [obsPreventiva, setObsPreventiva] = useState('');
   const [aguardandoPeca, setAguardandoPeca] = useState('');
   const [insumoCodigo, setInsumoCodigo] = useState('');
   const [insumoQtd, setInsumoQtd] = useState('1');
@@ -117,14 +116,6 @@ export default function ProfissionalPage() {
     if (atualizado) setSelecionado(atualizado);
     else setSelecionado(null);
   }, [emExecucao, aba, selecionado?.id]);
-
-  useEffect(() => {
-    if (!selecionado || !isPreventivaRev(selecionado)) {
-      setObsPreventiva('');
-      return;
-    }
-    setObsPreventiva(obsParticipacaoAtual(selecionado, usuario?.id));
-  }, [selecionado?.id, selecionado?.participantes, usuario?.id]);
 
   const assumir = async (id: string) => {
     setLoading(true);
@@ -164,18 +155,15 @@ export default function ProfissionalPage() {
       ? selecionado
       : null;
 
-  const salvarObsPreventiva = async () => {
-    if (!servicoEmExecucao || !isPreventivaRev(servicoEmExecucao)) return;
-    const atual = obsParticipacaoAtual(servicoEmExecucao, usuario?.id);
-    const novo = obsPreventiva.trim().toUpperCase();
-    if (novo === atual) return;
+  const conferirItemChecklist = async (itemId: string, conferido: boolean) => {
+    if (!servicoEmExecucao) return;
     setLoading(true);
     try {
-      const atualizado = await api.atualizarObsParticipante(servicoEmExecucao.id, novo);
+      const atualizado = await api.conferirChecklistItem(servicoEmExecucao.id, itemId, conferido);
       setSelecionado(atualizado);
       await carregar();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao salvar OBS');
+      alert(err instanceof Error ? err.message : 'Erro ao atualizar item');
     } finally {
       setLoading(false);
     }
@@ -186,7 +174,7 @@ export default function ProfissionalPage() {
 
   const marcarAguardandoPeca = async () => {
     if (!servicoEmExecucao || !aguardandoPeca.trim()) return;
-    const preventiva = isPreventivaRev(servicoEmExecucao);
+    const preventiva = isMultiParticipante(servicoEmExecucao);
     setLoading(true);
     try {
       await api.solicitarInsumo(servicoEmExecucao.id, aguardandoPeca.trim().toUpperCase(), true);
@@ -469,7 +457,7 @@ export default function ProfissionalPage() {
 
               <div className="flex-1 min-w-0">
                 <p className="text-slate-300 min-w-0 break-words">
-                  {isPreventivaRev(s) ? (
+                  {isMultiParticipante(s) ? (
                     <span className="font-semibold uppercase">{textoPreventivaRev(s)}</span>
                   ) : (
                     <>
@@ -631,26 +619,45 @@ export default function ProfissionalPage() {
             </div>
           )}
 
-          {isPreventivaRev(servicoEmExecucao) && (
-            <div className={`mb-2 p-2 bg-slate-900 rounded border border-sky-800/60 ${servicoPausado(servicoEmExecucao) ? 'opacity-60 pointer-events-none' : ''}`}>
-              <p className="text-slate-400 text-xs font-semibold mb-1">OBS</p>
-              <textarea
-                value={obsPreventiva}
-                onChange={(e) => setObsPreventiva(e.target.value.toUpperCase())}
-                onBlur={() => void salvarObsPreventiva()}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    void salvarObsPreventiva();
-                  }
-                }}
-                placeholder="Observação para o quadro TV..."
-                rows={2}
-                className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm uppercase"
-              />
-              <p className="text-slate-500 text-[10px] mt-1">Salva ao sair do campo (Enter). Aparece no quadro no seu setor.</p>
-            </div>
-          )}
+          {(() => {
+            const itens = itensChecklistDoSetor(servicoEmExecucao, usuario?.setor);
+            if (itens.length === 0) return null;
+            const feitos = itens.filter((i) => i.conferido).length;
+            return (
+              <div
+                className={`mb-2 p-2 bg-slate-900 rounded border border-violet-800/60 ${
+                  servicoPausado(servicoEmExecucao) ? 'opacity-60 pointer-events-none' : ''
+                }`}
+              >
+                <p className="text-slate-400 text-xs font-semibold mb-1">
+                  Checklist do setor ({feitos}/{itens.length})
+                </p>
+                <ul className="space-y-1">
+                  {itens.map((item) => (
+                    <li key={item.id}>
+                      <label className="flex items-start gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={item.conferido}
+                          disabled={loading}
+                          onChange={() => void conferirItemChecklist(item.id, !item.conferido)}
+                          className="mt-0.5 h-4 w-4 shrink-0 accent-violet-500"
+                        />
+                        <span
+                          className={`text-sm uppercase leading-snug ${
+                            item.conferido ? 'text-slate-500 line-through' : 'text-slate-200'
+                          }`}
+                        >
+                          {item.descricao}
+                          {item.quantidade > 1 ? ` × ${item.quantidade}` : ''}
+                        </span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })()}
 
           <div className="space-y-2">
           {ehControler && (
@@ -797,7 +804,7 @@ export default function ProfissionalPage() {
               }
               className="w-full mt-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-2 rounded text-sm"
             >
-              {servicoEmExecucao && isPreventivaRev(servicoEmExecucao)
+              {servicoEmExecucao && isMultiParticipante(servicoEmExecucao)
                 ? 'CONCLUIR MINHA PARTE'
                 : 'CONCLUIR SERVIÇO'}
             </button>

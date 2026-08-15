@@ -9,7 +9,7 @@ export const TIPO_CADASTRO_LABELS: Record<TipoCadastro, string> = {
 
 export const TIPOS_CADASTRO: TipoCadastro[] = ['PROFISSIONAL', 'GERENCIA'];
 
-export type Setor = 'MEC' | 'ELE' | 'LANT' | 'PINT' | 'REFR' | 'BORR' | 'LIMP' | 'OUTRO';
+export type Setor = 'MEC' | 'ELE' | 'LANT' | 'PINT' | 'REFR' | 'BORR' | 'LIMP' | 'OUTRO' | 'PENDENTE' | 'APS' | 'CGB';
 
 /** Setores no cadastro; Apontador, Estoque e Controler definem o perfil de acesso. */
 export type SetorCadastro = Setor | 'APONTADOR' | 'ESTOQUE' | 'CONTROLER';
@@ -102,9 +102,22 @@ export interface ServicoParticipante {
   tempoTotalMin?: number | null;
 }
 
+export type TipoChecklist = 'REVISAO_PREVENTIVA' | 'CHECKLIST_15000';
+
+export interface ServicoChecklistItem {
+  id: string;
+  setor: Setor;
+  ordem: number;
+  descricao: string;
+  quantidade: number;
+  conferido: boolean;
+  conferidoEm?: string | null;
+}
+
 export interface Servico {
   id: string;
   setor: Setor;
+  tipoChecklist?: TipoChecklist | null;
   descricao: string;
   localExterno?: string | null;
   status: StatusServico;
@@ -126,6 +139,7 @@ export interface Servico {
   fotoAntes?: string | null;
   fotoDepois?: string | null;
   insumos?: SolicitacaoInsumo[];
+  checklistItens?: ServicoChecklistItem[];
   createdAt: string;
 }
 
@@ -138,6 +152,9 @@ export const SETOR_LABELS: Record<Setor, string> = {
   BORR: 'Borracharia',
   LIMP: 'Limpeza',
   OUTRO: 'Revisão',
+  PENDENTE: 'A definir',
+  APS: 'Revisão Anápolis',
+  CGB: 'Revisão Cuiabá',
 };
 
 export const SETOR_PREFIX: Record<Setor, string> = {
@@ -149,6 +166,9 @@ export const SETOR_PREFIX: Record<Setor, string> = {
   BORR: '[BORR]',
   LIMP: '[LIMP]',
   OUTRO: '[REV]',
+  PENDENTE: '[MOT]',
+  APS: '[APS]',
+  CGB: '[CGB]',
 };
 
 /** Cores por setor: MEC/BORR laranja, ELE azul, REFR vermelho, LANT/PINT verde, LIMP roxo. */
@@ -203,6 +223,24 @@ export const SETOR_CORES: Record<
     chip: 'bg-slate-600 text-white',
     select: 'text-slate-600',
     profissional: 'bg-slate-600 text-white',
+  },
+  APS: {
+    badge: 'text-amber-400',
+    chip: 'bg-amber-600 text-white',
+    select: 'text-amber-600',
+    profissional: 'bg-amber-600 text-white',
+  },
+  CGB: {
+    badge: 'text-cyan-400',
+    chip: 'bg-cyan-600 text-white',
+    select: 'text-cyan-600',
+    profissional: 'bg-cyan-600 text-white',
+  },
+  PENDENTE: {
+    badge: 'text-slate-400',
+    chip: 'bg-slate-500 text-white',
+    select: 'text-slate-500',
+    profissional: 'bg-slate-500 text-white',
   },
 };
 

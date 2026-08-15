@@ -10,10 +10,12 @@ import {
   formatInsumoCodigo,
   nomeCompletoProfissionalSolicitouPeca,
   tempoServicoAtivoMin,
-  isPreventivaRev,
+  isMultiParticipante,
   badgesPreventivaQuadro,
   textoPreventivaRev,
   TEXTO_TESTE_POS_REVISAO,
+  TEXTO_REVISAO_APS,
+  TEXTO_REVISAO_CGB,
 } from '../lib/servico';
 import {
   InputHoraVeiculo,
@@ -27,7 +29,7 @@ import { useAuth } from '../context/AuthContext';
 import type { Servico, Setor, StatusServico, Garagem } from '../types';
 import { SETOR_CORES, SETOR_PREFIX, STATUS_COLORS, STATUS_LABELS, STATUS_SECAO_ADMIN } from '../types';
 
-const SETORES: Setor[] = ['MEC', 'ELE', 'LANT', 'PINT', 'REFR', 'BORR', 'LIMP', 'OUTRO'];
+const SETORES: Setor[] = ['MEC', 'ELE', 'LANT', 'PINT', 'REFR', 'BORR', 'LIMP', 'OUTRO', 'APS', 'CGB'];
 
 function formatHora(d?: string | null) {
   if (!d) return '—';
@@ -35,7 +37,7 @@ function formatHora(d?: string | null) {
 }
 
 function textoOQueFoiFeito(s: Servico): string {
-  if (isPreventivaRev(s)) {
+  if (isMultiParticipante(s)) {
     const linhas = (s.participantes ?? [])
       .filter((p) => Boolean(p.horaTermino))
       .slice()
@@ -489,7 +491,7 @@ function CelulasServicosAgregados({
                     onAtualizado={onAtualizado}
                   />
                 </div>
-              ) : isPreventivaRev(s) ? (
+              ) : isMultiParticipante(s) ? (
                 <span className={`font-semibold uppercase text-xs ${classeItemServicoAdmin(true)}`}>
                   {textoPreventivaRev(s)}
                 </span>
@@ -510,13 +512,15 @@ function CelulasServicosAgregados({
                 <CelulaProfissionalAguardandoPeca servico={s} />
               ) : s.status === 'SERVICO_EXTERNO' ? (
                 <span className="text-slate-500">—</span>
-              ) : isPreventivaRev(s) ? (
+              ) : isMultiParticipante(s) ? (
                 <div className="flex flex-wrap gap-1">
                   {badgesPreventivaQuadro(s).length === 0 ? (
                     <span className="text-slate-500 text-xs">
                       {textoPreventivaRev(s) === TEXTO_TESTE_POS_REVISAO
                         ? 'Teste pós revisão'
-                        : 'Aguardando alocação'}
+                        : (s.participantes ?? []).some((p) => Boolean(p.horaTermino))
+                          ? 'Setores concluídos'
+                          : 'Aguardando alocação'}
                     </span>
                   ) : (
                     <BadgesPreventivaQuadro
@@ -922,7 +926,8 @@ export default function AdminPage() {
       return;
     }
     const isRev = setor === 'OUTRO';
-    if (!isRev && !descricao.trim()) {
+    const isApsCgb = setor === 'APS' || setor === 'CGB';
+    if (!isRev && !isApsCgb && !descricao.trim()) {
       setMensagem('Informe a descrição do serviço');
       return;
     }
@@ -931,20 +936,26 @@ export default function AdminPage() {
       return;
     }
 
+    const descricaoPadrao =
+      setor === 'APS' ? TEXTO_REVISAO_APS : setor === 'CGB' ? TEXTO_REVISAO_CGB : 'REVISÃO PREVENTIVA';
+
     try {
       await api.cadastroRapido({
         veiculoNumero: veiculoNumeroInput.trim().toUpperCase(),
         setor,
-        descricao: isRev
-          ? descricao.trim().toUpperCase() || 'REVISÃO PREVENTIVA'
-          : descricao.trim().toUpperCase(),
+        descricao:
+          isRev || isApsCgb
+            ? descricao.trim().toUpperCase() || descricaoPadrao
+            : descricao.trim().toUpperCase(),
         garagemId,
       });
       setDescricao('');
       setMensagem(
         isRev
           ? 'Revisão preventiva adicionada (1 serviço por veículo)'
-          : 'Serviço adicionado',
+          : isApsCgb
+            ? `Revisão ${setor} adicionada na corretiva (1 serviço por veículo)`
+            : 'Serviço adicionado',
       );
       await carregar();
     } catch (err) {
@@ -1327,7 +1338,15 @@ export default function AdminPage() {
           </select>
           <input
             type="text"
-            placeholder={setor === 'OUTRO' ? 'REVISÃO PREVENTIVA (opcional)' : 'Descrição do serviço'}
+            placeholder={
+              setor === 'OUTRO'
+                ? 'REVISÃO PREVENTIVA (opcional)'
+                : setor === 'APS'
+                  ? 'REVISÃO ANÁPOLIS (opcional)'
+                  : setor === 'CGB'
+                    ? 'REVISÃO DE CUIABÁ (opcional)'
+                    : 'Descrição do serviço'
+            }
             value={descricao}
             onChange={(e) => setDescricao(e.target.value.toUpperCase())}
             onKeyDown={handleKeyDownCadastro}

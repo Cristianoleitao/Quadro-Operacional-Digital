@@ -7,6 +7,8 @@ import AdminPage from './pages/AdminPage';
 import GerenciaPage from './pages/GerenciaPage';
 import CadastroProfissionalPage from './pages/CadastroProfissionalPage';
 import EstoquePage from './pages/EstoquePage';
+import MotoristaPage from './pages/MotoristaPage';
+import RevisaoPage from './pages/RevisaoPage';
 import type { ReactNode } from 'react';
 import type { Role } from './types';
 
@@ -62,6 +64,8 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/cadastro" element={<CadastroProfissionalPage />} />
+          <Route path="/motorista" element={<MotoristaPage />} />
+          <Route path="/revisao" element={<RevisaoPage />} />
           <Route path="/quadro" element={<QuadroOperacional />} />
           <Route path="/" element={<HomeRedirect />} />
           <Route

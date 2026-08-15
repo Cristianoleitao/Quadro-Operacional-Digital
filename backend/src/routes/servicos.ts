@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
-import { Setor, StatusServico } from '@prisma/client';
+import { Setor, StatusServico, TipoChecklist } from '@prisma/client';
 import { Role } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { authMiddleware, requireRole } from '../middleware/auth';
@@ -11,6 +11,13 @@ import { garantirSaidasAtualizadas, anexarHoraSaidaVeiculos } from '../lib/saida
 import { enriquecerVeiculosLista } from '../lib/veiculoEnriquecimento';
 import { isControler } from '../lib/controler';
 import { encerrarPausaServico, minutosTrabalhadosServico } from '../lib/tempoServico';
+import {
+  descricaoTipoChecklist,
+  itensModeloChecklist,
+  setoresDoTipoChecklist,
+  chaveItemChecklist,
+  SETORES_CHECKLIST_15000,
+} from '../lib/checklistRevisao';
 // import { garantirServicoLimpezaVeiculo } from '../lib/servicoLimpeza';
 
 const router = Router();
@@ -41,6 +48,9 @@ const servicoInclude = {
       solicitadoPor: profissionalResumoSelect,
     },
   },
+  checklistItens: {
+    orderBy: [{ setor: 'asc' as const }, { ordem: 'asc' as const }],
+  },
 };
 
 /** Setores que podem se alocar em revisão preventiva (REV / OUTRO). */
@@ -53,8 +63,89 @@ const SETORES_PREVENTIVA: Setor[] = [
   Setor.BORR,
 ];
 
-function isPreventivaRev(servico: { status: StatusServico; setor: Setor }): boolean {
+/** Setores da revisão APS/CGB (corretiva multi-profissional). */
+const SETORES_REVISAO_CORRETIVA: Setor[] = [
+  Setor.MEC,
+  Setor.ELE,
+  Setor.LANT,
+  Setor.BORR,
+  Setor.REFR,
+];
+
+const TEXTO_REVISAO_APS = 'REVISÃO ANÁPOLIS';
+const TEXTO_REVISAO_CGB = 'REVISÃO DE CUIABÁ';
+
+function isPreventivaRev(servico: { status: StatusServico; setor: Setor; tipoChecklist?: TipoChecklist | null }): boolean {
+  if (servico.tipoChecklist === TipoChecklist.CHECKLIST_15000) return false;
   return servico.status === StatusServico.MANUTENCAO_PREVENTIVA && servico.setor === Setor.OUTRO;
+}
+
+function isRevisaoApsCgb(servico: { setor: Setor }): boolean {
+  return servico.setor === Setor.APS || servico.setor === Setor.CGB;
+}
+
+function isChecklist15000(servico: { tipoChecklist?: TipoChecklist | null; setor: Setor }): boolean {
+  return servico.setor === Setor.OUTRO && servico.tipoChecklist === TipoChecklist.CHECKLIST_15000;
+}
+
+/** REV preventiva, APS/CGB ou checklist 15.000: N profissionais via ServicoParticipante. */
+function isMultiParticipante(servico: {
+  status: StatusServico;
+  setor: Setor;
+  tipoChecklist?: TipoChecklist | null;
+}): boolean {
+  return isPreventivaRev(servico) || isRevisaoApsCgb(servico) || isChecklist15000(servico);
+}
+
+function setoresElegiveisMulti(servico: {
+  setor: Setor;
+  status: StatusServico;
+  tipoChecklist?: TipoChecklist | null;
+  checklistItens?: Array<{ setor: Setor }>;
+}): Setor[] {
+  const dosItens = [
+    ...new Set((servico.checklistItens ?? []).map((i) => i.setor)),
+  ];
+  if (dosItens.length > 0) return dosItens;
+
+  if (isPreventivaRev(servico)) return SETORES_PREVENTIVA;
+  if (isChecklist15000(servico)) return SETORES_CHECKLIST_15000;
+  if (isRevisaoApsCgb(servico)) return SETORES_REVISAO_CORRETIVA;
+  return [];
+}
+
+function descricaoPadraoRevisao(setor: Setor): string | null {
+  if (setor === Setor.APS) return TEXTO_REVISAO_APS;
+  if (setor === Setor.CGB) return TEXTO_REVISAO_CGB;
+  if (setor === Setor.OUTRO) return 'REVISÃO PREVENTIVA';
+  return null;
+}
+
+async function gravarItensChecklist(
+  servicoId: string,
+  tipo: TipoChecklist,
+  itens: Array<{ setor: Setor; ordem: number; descricao: string; quantidade: number }>,
+) {
+  const existentes = await prisma.servicoChecklistItem.count({ where: { servicoId } });
+  if (existentes > 0) return;
+
+  const modelo = itensModeloChecklist(tipo);
+  const permitidos = new Set(modelo.map((i) => chaveItemChecklist(i.setor, i.ordem)));
+  const setoresOk = new Set(setoresDoTipoChecklist(tipo));
+  const escolhidos = itens.filter(
+    (item) => setoresOk.has(item.setor) && permitidos.has(chaveItemChecklist(item.setor, item.ordem)),
+  );
+  if (escolhidos.length === 0) return;
+
+  await prisma.servicoChecklistItem.createMany({
+    data: escolhidos.map((item) => ({
+      servicoId,
+      setor: item.setor,
+      ordem: item.ordem,
+      descricao: item.descricao,
+      quantidade: item.quantidade,
+    })),
+  });
 }
 
 /** Espelha a participação ativa do usuário nos campos 1:1 do serviço (UI profissional). */
@@ -203,7 +294,8 @@ async function restaurarVeiculoSeSemPecaPendente(veiculoId: string): Promise<num
 
 const cadastroRapidoSchema = z.object({
   veiculoNumero: z.string().min(1).transform((s) => s.trim().toUpperCase()),
-  setor: z.nativeEnum(Setor),
+  /** Opcional: motorista não informa; admin define depois (default PENDENTE). */
+  setor: z.nativeEnum(Setor).optional(),
   descricao: z
     .string()
     .optional()
@@ -328,12 +420,16 @@ router.get('/quadro', async (req, res: Response) => {
 
 router.post('/cadastro-rapido', async (req: AuthRequest, res: Response) => {
   try {
-    const { veiculoNumero, setor, descricao, garagemId } = cadastroRapidoSchema.parse(req.body);
+    const parsed = cadastroRapidoSchema.parse(req.body);
+    const { veiculoNumero, descricao, garagemId } = parsed;
+    const setor = parsed.setor ?? Setor.PENDENTE;
     const numeroNormalizado = veiculoNumero.trim().toUpperCase();
 
     const isRev = setor === Setor.OUTRO;
-    const descricaoFinal = isRev
-      ? descricao || 'REVISÃO PREVENTIVA'
+    const isApsCgb = setor === Setor.APS || setor === Setor.CGB;
+    const descricaoPadrao = descricaoPadraoRevisao(setor);
+    const descricaoFinal = descricaoPadrao
+      ? descricao || descricaoPadrao
       : descricao;
     if (!descricaoFinal) {
       return res.status(400).json({ error: 'Descrição obrigatória' });
@@ -378,13 +474,23 @@ router.post('/cadastro-rapido', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // REV: um veículo = um serviço de revisão preventiva (reutiliza se já existir)
-    if (isRev) {
+    // REV / APS / CGB: um veículo = um serviço desse tipo (reutiliza se já existir)
+    if (isRev || isApsCgb) {
       const existente = await prisma.servico.findFirst({
         where: {
           veiculoId: veiculo.id,
-          setor: Setor.OUTRO,
-          status: StatusServico.MANUTENCAO_PREVENTIVA,
+          setor,
+          status: {
+            notIn: [StatusServico.FINALIZADO, StatusServico.CONCLUIDO],
+          },
+          ...(isRev
+            ? {
+                OR: [
+                  { tipoChecklist: TipoChecklist.REVISAO_PREVENTIVA },
+                  { tipoChecklist: null },
+                ],
+              }
+            : {}),
         },
         include: servicoInclude,
         orderBy: { createdAt: 'asc' },
@@ -401,7 +507,7 @@ router.post('/cadastro-rapido', async (req: AuthRequest, res: Response) => {
         return res.status(200).json({
           servico: existente,
           reutilizado: true,
-          mensagem: 'Revisão preventiva já existe para este veículo',
+          mensagem: 'Revisão já existe para este veículo',
         });
       }
     }
@@ -412,6 +518,7 @@ router.post('/cadastro-rapido', async (req: AuthRequest, res: Response) => {
         setor,
         descricao: descricaoFinal,
         status: isRev ? StatusServico.MANUTENCAO_PREVENTIVA : StatusServico.EM_EXECUCAO,
+        ...(isRev ? { tipoChecklist: TipoChecklist.REVISAO_PREVENTIVA } : {}),
       },
       include: servicoInclude,
     });
@@ -429,6 +536,151 @@ router.post('/cadastro-rapido', async (req: AuthRequest, res: Response) => {
     broadcast('quadro:update', null);
 
     res.status(201).json({ servico });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Dados inválidos', details: err.errors });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+const cadastroRevisaoSchema = z.object({
+  veiculoNumero: z.string().min(1).transform((s) => s.trim().toUpperCase()),
+  tipo: z.nativeEnum(TipoChecklist),
+  garagemId: z.string().uuid(),
+  itens: z
+    .array(
+      z.object({
+        setor: z.nativeEnum(Setor),
+        ordem: z.coerce.number().int().positive(),
+        descricao: z.string().min(1),
+        quantidade: z.coerce.number().int().positive().optional().default(1),
+      }),
+    )
+    .min(1, 'Selecione ao menos um item'),
+});
+
+router.post('/cadastro-revisao', async (req: AuthRequest, res: Response) => {
+  try {
+    const { veiculoNumero, tipo, garagemId, itens } = cadastroRevisaoSchema.parse(req.body);
+    const descricao = descricaoTipoChecklist(tipo);
+    const isChecklist = tipo === TipoChecklist.CHECKLIST_15000;
+    const statusInicial = isChecklist
+      ? StatusServico.EM_EXECUCAO
+      : StatusServico.MANUTENCAO_PREVENTIVA;
+    const modelo = itensModeloChecklist(tipo);
+    const permitidos = new Set(modelo.map((i) => chaveItemChecklist(i.setor, i.ordem)));
+    const itensValidos = itens.filter((item) =>
+      permitidos.has(chaveItemChecklist(item.setor, item.ordem)),
+    );
+    if (itensValidos.length === 0) {
+      return res.status(400).json({ error: 'Selecione ao menos um item válido para os setores' });
+    }
+    const numeroNormalizado = veiculoNumero.trim().toUpperCase();
+
+    const garagem = await prisma.garagem.findFirst({
+      where: { id: garagemId, ativo: true },
+    });
+    if (!garagem) {
+      return res.status(400).json({ error: 'Garagem inválida' });
+    }
+
+    let veiculo =
+      (await prisma.veiculo.findUnique({ where: { numero: numeroNormalizado } })) ??
+      (await prisma.veiculo.findFirst({
+        where: { numero: { equals: numeroNormalizado, mode: 'insensitive' } },
+      }));
+    if (!veiculo) {
+      veiculo = await prisma.veiculo.create({
+        data: { numero: numeroNormalizado, dataEntrada: new Date(), garagemId },
+      });
+    } else {
+      const updates: { dataEntrada?: Date; fechadoAdmin?: boolean; garagemId?: string } = {
+        garagemId,
+      };
+      if (veiculo.fechadoAdmin) {
+        updates.fechadoAdmin = false;
+        updates.dataEntrada = new Date();
+      } else if (!veiculo.dataEntrada) {
+        updates.dataEntrada = new Date();
+      }
+      if (Object.keys(updates).length > 0) {
+        veiculo = await prisma.veiculo.update({
+          where: { id: veiculo.id },
+          data: updates,
+        });
+      }
+    }
+
+    let existente = await prisma.servico.findFirst({
+      where: {
+        veiculoId: veiculo.id,
+        setor: Setor.OUTRO,
+        tipoChecklist: tipo,
+        status: { notIn: [StatusServico.FINALIZADO, StatusServico.CONCLUIDO] },
+      },
+      include: servicoInclude,
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!existente && tipo === TipoChecklist.REVISAO_PREVENTIVA) {
+      existente = await prisma.servico.findFirst({
+        where: {
+          veiculoId: veiculo.id,
+          setor: Setor.OUTRO,
+          tipoChecklist: null,
+          status: { notIn: [StatusServico.FINALIZADO, StatusServico.CONCLUIDO] },
+        },
+        include: servicoInclude,
+        orderBy: { createdAt: 'asc' },
+      });
+    }
+    if (existente) {
+      await gravarItensChecklist(existente.id, tipo, itensValidos);
+      const atualizado = await prisma.servico.findUnique({
+        where: { id: existente.id },
+        include: servicoInclude,
+      });
+      await auditLog(req, 'CRIAR', 'Servico', existente.id, {
+        veiculoNumero,
+        setor: Setor.OUTRO,
+        tipoChecklist: tipo,
+        reutilizado: true,
+      });
+      broadcast('quadro:update', null);
+      return res.status(200).json({
+        servico: atualizado,
+        reutilizado: true,
+        mensagem: `${descricao} já existe para este veículo`,
+      });
+    }
+
+    const servico = await prisma.servico.create({
+      data: {
+        veiculoId: veiculo.id,
+        setor: Setor.OUTRO,
+        tipoChecklist: tipo,
+        descricao,
+        status: statusInicial,
+      },
+      include: servicoInclude,
+    });
+    await gravarItensChecklist(servico.id, tipo, itensValidos);
+
+    const criado = await prisma.servico.findUnique({
+      where: { id: servico.id },
+      include: servicoInclude,
+    });
+
+    await auditLog(req, 'CRIAR', 'Servico', servico.id, {
+      veiculoNumero,
+      setor: Setor.OUTRO,
+      tipoChecklist: tipo,
+      descricao,
+      status: servico.status,
+    });
+    broadcast('quadro:update', null);
+    res.status(201).json({ servico: criado });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ error: 'Dados inválidos', details: err.errors });
@@ -616,6 +868,7 @@ router.get('/meus', async (req: AuthRequest, res: Response) => {
   });
 
   let preventivas: typeof corretivos = [];
+  let revisoesCorretivas: typeof corretivos = [];
   if (
     user.role === Role.PROFISSIONAL &&
     usuario?.setor &&
@@ -625,7 +878,44 @@ router.get('/meus', async (req: AuthRequest, res: Response) => {
       where: {
         setor: Setor.OUTRO,
         status: StatusServico.MANUTENCAO_PREVENTIVA,
-        // Já assumiu (ativo ou concluído) → não listar de novo
+        AND: [
+          {
+            OR: [
+              { tipoChecklist: null },
+              { tipoChecklist: TipoChecklist.REVISAO_PREVENTIVA },
+            ],
+          },
+          {
+            OR: [
+              { checklistItens: { none: {} } },
+              { checklistItens: { some: { setor: usuario.setor } } },
+            ],
+          },
+        ],
+        participantes: { none: { profissionalId: user.id } },
+        ...filtroGaragem,
+      },
+      include: servicoInclude,
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  if (
+    user.role === Role.PROFISSIONAL &&
+    usuario?.setor &&
+    SETORES_REVISAO_CORRETIVA.includes(usuario.setor)
+  ) {
+    revisoesCorretivas = await prisma.servico.findMany({
+      where: {
+        OR: [
+          { setor: { in: [Setor.APS, Setor.CGB] } },
+          {
+            setor: Setor.OUTRO,
+            tipoChecklist: TipoChecklist.CHECKLIST_15000,
+            checklistItens: { some: { setor: usuario.setor } },
+          },
+        ],
+        status: { in: STATUS_PROFISSIONAL_ATIVO.filter((s) => s !== StatusServico.MANUTENCAO_PREVENTIVA) },
         participantes: { none: { profissionalId: user.id } },
         ...filtroGaragem,
       },
@@ -647,7 +937,7 @@ router.get('/meus', async (req: AuthRequest, res: Response) => {
     orderBy: { createdAt: 'asc' },
   });
 
-  const lista = [...corretivos, ...preventivas, ...preventivaDoSetor];
+  const lista = [...corretivos, ...preventivas, ...revisoesCorretivas, ...preventivaDoSetor];
   res.json(await enriquecerVeiculosLista(await anexarHoraSaidaVeiculos(lista)));
 });
 
@@ -659,7 +949,7 @@ router.get('/em-execucao', async (req: AuthRequest, res: Response) => {
   });
   const controler = isControler(usuario);
 
-  const [corretivos, preventivas] = await Promise.all([
+  const [corretivos, multiParticipante] = await Promise.all([
     prisma.servico.findMany({
       where: {
         profissionalId: userId,
@@ -674,8 +964,33 @@ router.get('/em-execucao', async (req: AuthRequest, res: Response) => {
       ? Promise.resolve([])
       : prisma.servico.findMany({
           where: {
-            setor: Setor.OUTRO,
-            status: StatusServico.MANUTENCAO_PREVENTIVA,
+            OR: [
+              {
+                setor: Setor.OUTRO,
+                status: StatusServico.MANUTENCAO_PREVENTIVA,
+                OR: [
+                  { tipoChecklist: null },
+                  { tipoChecklist: TipoChecklist.REVISAO_PREVENTIVA },
+                ],
+              },
+              {
+                setor: Setor.OUTRO,
+                tipoChecklist: TipoChecklist.CHECKLIST_15000,
+                status: {
+                  in: STATUS_PROFISSIONAL_ATIVO.filter(
+                    (s) => s !== StatusServico.MANUTENCAO_PREVENTIVA,
+                  ),
+                },
+              },
+              {
+                setor: { in: [Setor.APS, Setor.CGB] },
+                status: {
+                  in: STATUS_PROFISSIONAL_ATIVO.filter(
+                    (s) => s !== StatusServico.MANUTENCAO_PREVENTIVA,
+                  ),
+                },
+              },
+            ],
             participantes: { some: { profissionalId: userId, horaTermino: null } },
           },
           include: servicoInclude,
@@ -685,7 +1000,7 @@ router.get('/em-execucao', async (req: AuthRequest, res: Response) => {
 
   const lista = [
     ...corretivos,
-    ...preventivas.map((s) => comParticipacaoDoUsuario(s, userId)),
+    ...multiParticipante.map((s) => comParticipacaoDoUsuario(s, userId)),
   ];
 
   res.json(await enriquecerVeiculosLista(await anexarHoraSaidaVeiculos(lista)));
@@ -1057,6 +1372,7 @@ router.post('/:id/assumir', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
     include: {
       profissional: true,
       participantes: { where: { horaTermino: null } },
+      checklistItens: { select: { setor: true } },
     },
   });
 
@@ -1067,10 +1383,11 @@ router.post('/:id/assumir', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
 
   const agora = new Date();
 
-  // Revisão preventiva REV: N profissionais
-  if (isPreventivaRev(servico)) {
-    if (!usuario?.setor || !SETORES_PREVENTIVA.includes(usuario.setor)) {
-      return res.status(403).json({ error: 'Seu setor não participa da revisão preventiva' });
+  // Revisão multi (REV / APS / CGB): N profissionais
+  if (isMultiParticipante(servico)) {
+    const elegiveis = setoresElegiveisMulti(servico);
+    if (!usuario?.setor || !elegiveis.includes(usuario.setor)) {
+      return res.status(403).json({ error: 'Seu setor não participa desta revisão' });
     }
     if (servico.participantes.some((p) => p.profissionalId === req.user!.id)) {
       return res.status(409).json({ error: 'Você já está alocado nesta revisão' });
@@ -1100,7 +1417,7 @@ router.post('/:id/assumir', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
     if ((servico.descricao ?? '').toUpperCase().includes('TESTE POS')) {
       await prisma.servico.update({
         where: { id: servico.id },
-        data: { descricao: 'REVISÃO PREVENTIVA' },
+        data: { descricao: descricaoPadraoRevisao(servico.setor) ?? 'REVISÃO PREVENTIVA' },
       });
     }
 
@@ -1158,7 +1475,7 @@ router.post('/:id/liberar', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
     return res.status(400).json({ error: 'Serviço já encerrado' });
   }
 
-  if (isPreventivaRev(servico)) {
+  if (isMultiParticipante(servico)) {
     const participacao = servico.participantes[0];
     if (!participacao) {
       return res.status(403).json({ error: 'Serviço não está em sua execução' });
@@ -1208,7 +1525,7 @@ router.post('/:id/pausar', requireRole(Role.PROFISSIONAL), async (req: AuthReque
 
   const agora = new Date();
 
-  if (isPreventivaRev(servico)) {
+  if (isMultiParticipante(servico)) {
     const participacao = servico.participantes[0];
     if (!participacao) {
       return res.status(403).json({ error: 'Serviço não está em sua execução' });
@@ -1264,7 +1581,7 @@ router.post('/:id/despausar', requireRole(Role.PROFISSIONAL), async (req: AuthRe
 
   const agora = new Date();
 
-  if (isPreventivaRev(servico)) {
+  if (isMultiParticipante(servico)) {
     const participacao = servico.participantes[0];
     if (!participacao) {
       return res.status(403).json({ error: 'Serviço não está em sua execução' });
@@ -1328,8 +1645,8 @@ router.patch(
         },
       });
       if (!servico) return res.status(404).json({ error: 'Serviço não encontrado' });
-      if (!isPreventivaRev(servico)) {
-        return res.status(400).json({ error: 'OBS só se aplica à revisão preventiva' });
+      if (!isMultiParticipante(servico)) {
+        return res.status(400).json({ error: 'OBS só se aplica a revisões multi-setor' });
       }
 
       const participacao = servico.participantes[0];
@@ -1348,6 +1665,77 @@ router.patch(
       });
 
       await auditLog(req, 'ATUALIZAR_OBS_PARTICIPANTE', 'Servico', servicoId, { obs });
+      broadcast('quadro:update', null);
+      res.json(comParticipacaoDoUsuario(updated!, req.user!.id));
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Dados inválidos', details: err.errors });
+      }
+      console.error(err);
+      res.status(500).json({ error: 'Erro interno' });
+    }
+  },
+);
+
+const checklistConferirSchema = z.object({
+  conferido: z.boolean(),
+});
+
+router.patch(
+  '/:id/checklist/:itemId',
+  requireRole(Role.PROFISSIONAL),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { conferido } = checklistConferirSchema.parse(req.body);
+      const servicoId = paramId(req.params.id);
+      const itemId = paramId(req.params.itemId);
+
+      const usuario = await prisma.usuario.findUnique({
+        where: { id: req.user!.id },
+        select: { setor: true },
+      });
+      if (!usuario?.setor) {
+        return res.status(403).json({ error: 'Profissional sem setor' });
+      }
+
+      const servico = await prisma.servico.findUnique({
+        where: { id: servicoId },
+        include: {
+          participantes: { where: { profissionalId: req.user!.id, horaTermino: null } },
+        },
+      });
+      if (!servico) return res.status(404).json({ error: 'Serviço não encontrado' });
+      if (!isMultiParticipante(servico)) {
+        return res.status(400).json({ error: 'Checklist só se aplica a revisões' });
+      }
+      if (servico.participantes.length === 0) {
+        return res.status(403).json({ error: 'Serviço não está em sua execução' });
+      }
+
+      const item = await prisma.servicoChecklistItem.findFirst({
+        where: { id: itemId, servicoId },
+      });
+      if (!item) return res.status(404).json({ error: 'Item não encontrado' });
+      if (item.setor !== usuario.setor) {
+        return res.status(403).json({ error: 'Item de outro setor' });
+      }
+
+      await prisma.servicoChecklistItem.update({
+        where: { id: itemId },
+        data: conferido
+          ? { conferido: true, conferidoEm: new Date(), conferidoPorId: req.user!.id }
+          : { conferido: false, conferidoEm: null, conferidoPorId: null },
+      });
+
+      const updated = await prisma.servico.findUnique({
+        where: { id: servicoId },
+        include: servicoInclude,
+      });
+      await auditLog(req, 'CHECKLIST', 'Servico', servicoId, {
+        itemId,
+        conferido,
+        setor: item.setor,
+      });
       broadcast('quadro:update', null);
       res.json(comParticipacaoDoUsuario(updated!, req.user!.id));
     } catch (err) {
@@ -1512,22 +1900,33 @@ router.patch(
         return res.json(atual);
       }
 
-      if (setor === Setor.OUTRO) {
-        const outroRev = await prisma.servico.findFirst({
+      if (setor === Setor.OUTRO || setor === Setor.APS || setor === Setor.CGB) {
+        const outroMesmoTipo = await prisma.servico.findFirst({
           where: {
             veiculoId: servico.veiculoId,
-            setor: Setor.OUTRO,
-            status: StatusServico.MANUTENCAO_PREVENTIVA,
+            setor,
+            status: {
+              notIn: [StatusServico.FINALIZADO, StatusServico.CONCLUIDO],
+            },
             id: { not: id },
+            ...(setor === Setor.OUTRO
+              ? {
+                  OR: [
+                    { tipoChecklist: TipoChecklist.REVISAO_PREVENTIVA },
+                    { tipoChecklist: null },
+                  ],
+                }
+              : {}),
           },
         });
-        if (outroRev) {
+        if (outroMesmoTipo) {
           return res.status(409).json({
-            error: 'Já existe revisão preventiva neste veículo. Use o serviço REV existente.',
+            error: `Já existe revisão ${setor} neste veículo. Use o serviço existente.`,
           });
         }
       }
 
+      const descPadrao = descricaoPadraoRevisao(setor);
       const updated = await prisma.servico.update({
         where: { id },
         data: {
@@ -1535,12 +1934,21 @@ router.patch(
           ...(setor === Setor.OUTRO
             ? {
                 status: StatusServico.MANUTENCAO_PREVENTIVA,
-                descricao: 'REVISÃO PREVENTIVA',
+                descricao: descPadrao ?? 'REVISÃO PREVENTIVA',
+                tipoChecklist: TipoChecklist.REVISAO_PREVENTIVA,
                 profissionalId: null,
                 horaAssumido: null,
                 horaInicio: null,
               }
-            : {}),
+            : isRevisaoApsCgb({ setor })
+              ? {
+                  status: StatusServico.EM_EXECUCAO,
+                  descricao: descPadrao ?? undefined,
+                  profissionalId: null,
+                  horaAssumido: null,
+                  horaInicio: null,
+                }
+              : {}),
         },
         include: servicoInclude,
       });
@@ -1588,9 +1996,9 @@ router.post('/:id/insumos', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
     });
     if (!servico) return res.status(404).json({ error: 'Serviço não encontrado' });
 
-    const emExecucaoPreventiva = isPreventivaRev(servico) && servico.participantes.length > 0;
+    const emExecucaoMulti = isMultiParticipante(servico) && servico.participantes.length > 0;
     const emExecucaoNormal = servico.profissionalId === req.user!.id;
-    if (!emExecucaoPreventiva && !emExecucaoNormal) {
+    if (!emExecucaoMulti && !emExecucaoNormal) {
       return res.status(403).json({ error: 'Serviço não está em sua execução' });
     }
 
@@ -1598,7 +2006,7 @@ router.post('/:id/insumos', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
       return res.status(400).json({ error: 'Serviço não está ativo para solicitação de insumo' });
     }
 
-    const pausado = emExecucaoPreventiva
+    const pausado = emExecucaoMulti
       ? Boolean(servico.participantes[0]?.pausadoEm)
       : Boolean(servico.pausadoEm);
     if (pausado) {
@@ -1619,8 +2027,8 @@ router.post('/:id/insumos', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
       },
     });
 
-    // Preventiva REV: registra peça para o estoque, mas não muda status nem desconecta
-    const mudarStatusAguardando = alterarStatus && !isPreventivaRev(servico);
+    // Multi (REV / APS / CGB): registra peça, mas não muda status nem desconecta
+    const mudarStatusAguardando = alterarStatus && !isMultiParticipante(servico);
     if (mudarStatusAguardando) {
       await aplicarAguardandoInsumoNoVeiculo(servico.veiculoId);
     }
@@ -1629,7 +2037,7 @@ router.post('/:id/insumos', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
       descricao,
       quantidade: alterarStatus ? 1 : quantidade,
       alterarStatus,
-      preventivaSemMudarStatus: alterarStatus && isPreventivaRev(servico),
+      preventivaSemMudarStatus: alterarStatus && isMultiParticipante(servico),
       veiculoId: servico.veiculoId,
       profissionalDesconectado: mudarStatusAguardando && Boolean(servico.profissionalId),
     });
@@ -1738,7 +2146,7 @@ router.patch(
         data: { atendido: false },
       });
 
-      if (insumo.aguardarPeca && !isPreventivaRev(insumo.servico)) {
+      if (insumo.aguardarPeca && !isMultiParticipante(insumo.servico)) {
         await aplicarAguardandoInsumoNoVeiculo(insumo.servico.veiculoId);
       }
 
@@ -1840,12 +2248,13 @@ router.post('/:id/finalizar', requireRole(Role.PROFISSIONAL), async (req: AuthRe
       where: { id: servicoId },
       include: {
         participantes: { where: { profissionalId: req.user!.id, horaTermino: null } },
+        checklistItens: { select: { setor: true } },
       },
     });
     if (!servico) return res.status(404).json({ error: 'Serviço não encontrado' });
 
-    // Preventiva REV: encerra só a participação; serviço permanece aberto
-    if (isPreventivaRev(servico)) {
+    // Multi (REV / APS / CGB): encerra só a participação; serviço permanece aberto
+    if (isMultiParticipante(servico)) {
       const participacao = servico.participantes[0];
       if (!participacao) {
         return res.status(403).json({ error: 'Serviço não está em sua execução' });
@@ -1883,8 +2292,11 @@ router.post('/:id/finalizar', requireRole(Role.PROFISSIONAL), async (req: AuthRe
       const setoresConcluidos = new Set(
         concluidos.map((p) => p.profissional.setor).filter((s): s is Setor => Boolean(s)),
       );
-      const todosSetoresOk = SETORES_PREVENTIVA.every((s) => setoresConcluidos.has(s));
-      const testePosRevisao = restantesAtivos === 0 && todosSetoresOk;
+      const setoresChecklist = setoresElegiveisMulti(servico);
+      const todosSetoresOk = setoresChecklist.every((s) => setoresConcluidos.has(s));
+      // TESTE POS só na preventiva REV; APS/CGB permanece na corretiva
+      const testePosRevisao =
+        isPreventivaRev(servico) && restantesAtivos === 0 && todosSetoresOk;
 
       const profissional = await prisma.usuario.findUnique({
         where: { id: req.user!.id },

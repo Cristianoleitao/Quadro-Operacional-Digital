@@ -23,6 +23,9 @@ enum Setor {
   BORR
   LIMP
   OUTRO
+  PENDENTE
+  APS
+  CGB
 }
 
 model Garagem {
@@ -50,6 +53,11 @@ enum StatusServico {
   CONCLUIDO
 }
 
+enum TipoChecklist {
+  REVISAO_PREVENTIVA
+  CHECKLIST_15000
+}
+
 model Usuario {
   id            String   @id @default(uuid())
   nome          String
@@ -68,6 +76,7 @@ model Usuario {
   servicosFinalizados Servico[] @relation("ServicoFinalizadoPor")
   participacoes       ServicoParticipante[] @relation("ParticipanteProfissional")
   insumosSolicitados  SolicitacaoInsumo[] @relation("InsumoSolicitadoPor")
+  checklistConferidos ServicoChecklistItem[] @relation("ChecklistConferidoPor")
   auditorias Auditoria[]
 }
 
@@ -110,6 +119,7 @@ model Servico {
   numeroOs       String?
   horaOs         DateTime?
   setor          Setor
+  tipoChecklist  TipoChecklist?
   descricao      String
   localExterno   String?
   status         StatusServico @default(EM_EXECUCAO)
@@ -132,6 +142,26 @@ model Servico {
 
   insumos       SolicitacaoInsumo[]
   participantes ServicoParticipante[]
+  checklistItens ServicoChecklistItem[]
+}
+
+/** Itens da revisão / checklist 15.000 — visíveis só ao profissional do setor. */
+model ServicoChecklistItem {
+  id             String    @id @default(uuid())
+  servicoId      String
+  servico        Servico   @relation(fields: [servicoId], references: [id], onDelete: Cascade)
+  setor          Setor
+  ordem          Int
+  descricao      String
+  quantidade     Int       @default(1)
+  conferido      Boolean   @default(false)
+  conferidoEm    DateTime?
+  conferidoPorId String?
+  conferidoPor   Usuario?  @relation("ChecklistConferidoPor", fields: [conferidoPorId], references: [id])
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([servicoId, setor])
 }
 
 /** Alocação N:N para revisão preventiva (REV / OUTRO). */

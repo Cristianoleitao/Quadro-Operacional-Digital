@@ -19,7 +19,7 @@ import {
   type SecaoQuadro,
 } from '../lib/quadro';
 import type { Servico, Garagem } from '../types';
-import { textoAguardandoPecaQuadro, isPreventivaRev, textoPreventivaRev } from '../lib/servico';
+import { textoAguardandoPecaQuadro, isMultiParticipante, textoPreventivaRev } from '../lib/servico';
 import { ChipSetor, classeNomeProfissionalServico, classeNomeSolicitantePeca, BadgesPreventivaQuadro } from '../components/BadgeSetor';
 import { InputProfissionalServico, primeiroNome } from '../components/InputProfissionalServico';
 
@@ -106,7 +106,7 @@ function CelulaServicos({
           const editando = servicoProfissionalEditando === s.id;
           const aguardandoPeca = s.status === 'AGUARDANDO_INSUMO';
           const textoAguardando = aguardandoPeca ? textoAguardandoPecaQuadro(s) : '';
-          const preventiva = isPreventivaRev(s);
+          const preventiva = isMultiParticipante(s);
 
           if (preventiva) {
             return (

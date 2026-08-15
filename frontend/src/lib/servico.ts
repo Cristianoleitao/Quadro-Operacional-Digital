@@ -1,3 +1,4 @@
+import { SETORES_CHECKLIST_15000 } from './checklistRevisao';
 import type { ProfissionalResumo, Servico, Setor } from '../types';
 import { SETOR_PREFIX } from '../types';
 
@@ -111,18 +112,54 @@ export function servicoPausado(servico: Servico): boolean {
 }
 
 /** Revisão preventiva multi-profissional (setor REV / OUTRO). */
-export function isPreventivaRev(servico: Pick<Servico, 'status' | 'setor'>): boolean {
+export function isPreventivaRev(servico: Pick<Servico, 'status' | 'setor' | 'tipoChecklist'>): boolean {
+  if (servico.tipoChecklist === 'CHECKLIST_15000') return false;
   return servico.status === 'MANUTENCAO_PREVENTIVA' && servico.setor === 'OUTRO';
+}
+
+/** Revisão APS/CGB na corretiva (multi-profissional). */
+export function isRevisaoApsCgb(servico: Pick<Servico, 'setor'>): boolean {
+  return servico.setor === 'APS' || servico.setor === 'CGB';
+}
+
+export function isChecklist15000(servico: Pick<Servico, 'setor' | 'tipoChecklist'>): boolean {
+  return servico.setor === 'OUTRO' && servico.tipoChecklist === 'CHECKLIST_15000';
+}
+
+/** REV preventiva, APS/CGB ou checklist 15.000. */
+export function isMultiParticipante(servico: Pick<Servico, 'status' | 'setor' | 'tipoChecklist'>): boolean {
+  return isPreventivaRev(servico) || isRevisaoApsCgb(servico) || isChecklist15000(servico);
 }
 
 export const TEXTO_REVISAO_PREVENTIVA = 'REVISÃO PREVENTIVA';
 export const TEXTO_TESTE_POS_REVISAO = 'TESTE POS REVISÃO';
+export const TEXTO_REVISAO_APS = 'REVISÃO ANÁPOLIS';
+export const TEXTO_REVISAO_CGB = 'REVISÃO DE CUIABÁ';
+export const TEXTO_CHECKLIST_15000 = 'CHECKLIST 15.000';
 
 /** Setores que participam da revisão preventiva no quadro. */
 export const SETORES_PREVENTIVA: Setor[] = ['MEC', 'ELE', 'REFR', 'LANT', 'PINT', 'BORR'];
 
-/** Texto da célula no quadro/admin: preventiva ou teste pós revisão. */
-export function textoPreventivaRev(servico: Pick<Servico, 'status' | 'setor' | 'descricao' | 'participantes'>): string {
+/** Setores da revisão APS/CGB (sem PINT). */
+export const SETORES_REVISAO_CORRETIVA: Setor[] = ['MEC', 'ELE', 'LANT', 'BORR', 'REFR'];
+
+function setoresChecklistMulti(servico: Pick<Servico, 'status' | 'setor' | 'tipoChecklist' | 'checklistItens'>): Setor[] {
+  const dosItens = [...new Set((servico.checklistItens ?? []).map((i) => i.setor))];
+  if (dosItens.length > 0) return dosItens;
+  if (isPreventivaRev(servico)) return SETORES_PREVENTIVA;
+  if (isChecklist15000(servico)) return SETORES_CHECKLIST_15000;
+  if (isRevisaoApsCgb(servico)) return SETORES_REVISAO_CORRETIVA;
+  return [];
+}
+
+/** Texto da célula no quadro/admin: preventiva, APS, CGB, checklist ou descrição. */
+export function textoPreventivaRev(servico: Pick<Servico, 'status' | 'setor' | 'descricao' | 'participantes' | 'tipoChecklist'>): string {
+  if (isChecklist15000(servico) || (servico.descricao ?? '').toUpperCase().includes('CHECKLIST')) {
+    return TEXTO_CHECKLIST_15000;
+  }
+  if (isRevisaoApsCgb(servico)) {
+    return servico.setor === 'APS' ? TEXTO_REVISAO_APS : TEXTO_REVISAO_CGB;
+  }
   if (!isPreventivaRev(servico)) return servico.descricao;
   const d = (servico.descricao ?? '').trim().toUpperCase();
   if (d.includes('TESTE POS')) return TEXTO_TESTE_POS_REVISAO;
@@ -156,20 +193,22 @@ export type BadgePreventivaQuadro =
     };
 
 /**
- * Quadro TV — por setor da preventiva:
+ * Quadro TV — por setor da revisão multi:
  * - pendente → chip do setor
  * - assumido → badge com o nome
  * - concluído → some
  * Em TESTE POS REVISÃO → lista vazia (só o texto).
  */
 export function badgesPreventivaQuadro(servico: Servico): BadgePreventivaQuadro[] {
-  if (!isPreventivaRev(servico)) return [];
-  if (textoPreventivaRev(servico) === TEXTO_TESTE_POS_REVISAO) return [];
+  if (!isMultiParticipante(servico)) return [];
+  if (isPreventivaRev(servico) && textoPreventivaRev(servico) === TEXTO_TESTE_POS_REVISAO) {
+    return [];
+  }
 
   const todos = servico.participantes ?? [];
   const badges: BadgePreventivaQuadro[] = [];
 
-  for (const setor of SETORES_PREVENTIVA) {
+  for (const setor of setoresChecklistMulti(servico)) {
     const doSetor = todos.filter((p) => p.profissional?.setor === setor);
     const ativos = doSetor.filter((p) => !p.horaTermino);
     const concluiu = doSetor.some((p) => Boolean(p.horaTermino));
@@ -244,4 +283,13 @@ export function tempoServicoAtivoMin(servico: Servico, agora = new Date()): numb
     min -= Math.round((agora.getTime() - new Date(servico.pausadoEm).getTime()) / 60000);
   }
   return Math.max(0, min);
+}
+
+/** Itens do checklist visíveis só para o setor do profissional. */
+export function itensChecklistDoSetor(servico: Servico, setor?: Setor | null) {
+  if (!setor) return [];
+  return (servico.checklistItens ?? [])
+    .filter((item) => item.setor === setor)
+    .slice()
+    .sort((a, b) => a.ordem - b.ordem);
 }
