@@ -136,6 +136,19 @@ export function linhaVeiculoRowClass(servicos: Servico[], secao: SecaoQuadro): s
 }
 
 
+function horaCriacaoMaisAntiga(servicos: Servico[]): number {
+  const tempos = servicos
+    .map((s) => new Date(s.createdAt).getTime())
+    .filter((t) => Number.isFinite(t));
+  return tempos.length > 0 ? Math.min(...tempos) : 0;
+}
+
+function compararLinhasPorCriacao(a: LinhaVeiculoQuadro, b: LinhaVeiculoQuadro): number {
+  const diff = horaCriacaoMaisAntiga(a.servicos) - horaCriacaoMaisAntiga(b.servicos);
+  if (diff !== 0) return diff;
+  return a.veiculo.localeCompare(b.veiculo, 'pt-BR', { numeric: true });
+}
+
 function horaOrdenacaoVeiculo(veiculo: Veiculo, servicos: Servico[]): number {
   const src = veiculo.dataEntrada ?? servicos[0]?.createdAt;
   if (!src) return 0;
@@ -167,6 +180,10 @@ export function agruparVeiculosNaSecao(itens: Servico[], secaoId?: string): Linh
       if (diff !== 0) return diff;
       return a.veiculo.localeCompare(b.veiculo, 'pt-BR', { numeric: true });
     });
+  }
+
+  if (secaoId === 'preventiva') {
+    return linhas.sort(compararLinhasPorCriacao);
   }
 
   return linhas.sort((a, b) => a.veiculo.localeCompare(b.veiculo, 'pt-BR', { numeric: true }));
@@ -247,6 +264,8 @@ export function organizarQuadroPorSecao(
         if (diff !== 0) return diff;
         return a.veiculo.localeCompare(b.veiculo, 'pt-BR', { numeric: true });
       });
+    } else if (secao.id === 'preventiva') {
+      linhas = [...linhas].sort(compararLinhasPorCriacao);
     } else {
       linhas = [...linhas].sort((a, b) =>
         a.veiculo.localeCompare(b.veiculo, 'pt-BR', { numeric: true }),
@@ -547,6 +566,12 @@ export function agruparPorSecao(servicos: Servico[]): Array<{ secao: SecaoQuadro
     itens: servicos
       .filter((s) => secao.statuses.includes(s.status))
       .sort((a, b) => {
+        if (secao.id === 'preventiva') {
+          const diff =
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+          if (diff !== 0) return diff;
+          return veiculoNumero(a).localeCompare(veiculoNumero(b), 'pt-BR', { numeric: true });
+        }
         const va = veiculoNumero(a);
         const vb = veiculoNumero(b);
         if (va !== vb) return va.localeCompare(vb, 'pt-BR', { numeric: true });

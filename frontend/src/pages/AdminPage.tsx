@@ -364,6 +364,13 @@ function organizarAdminPorSecao(servicos: Servico[]): { secoes: SecaoAdmin[] } {
         });
 
       grupos = [...aguardando, ...corretivaAbertos];
+    } else if (secao.id === 'preventiva') {
+      grupos = [...grupos].sort((a, b) => {
+        const ta = Math.min(...a.servicos.map((s) => new Date(s.createdAt).getTime()));
+        const tb = Math.min(...b.servicos.map((s) => new Date(s.createdAt).getTime()));
+        if (ta !== tb) return ta - tb;
+        return a.numero.localeCompare(b.numero, 'pt-BR', { numeric: true });
+      });
     } else {
       grupos = [...grupos].sort((a, b) =>
         a.numero.localeCompare(b.numero, 'pt-BR', { numeric: true }),
