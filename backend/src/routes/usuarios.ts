@@ -14,6 +14,7 @@ const setorCadastroSchema = z.union([
   z.literal('APONTADOR'),
   z.literal('ESTOQUE'),
   z.literal('CONTROLER'),
+  z.literal('ENCARREGADO'),
 ]);
 
 const cadastroUsuarioSchema = z
@@ -35,11 +36,7 @@ const cadastroUsuarioSchema = z
 
     const exigeGaragem = data.setor !== 'APONTADOR' && data.setor !== 'ESTOQUE' && data.setor !== 'CONTROLER';
     if (exigeGaragem && !data.garagemId) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Garagem obrigatória',
-        path: ['garagemId'],
-      });
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Garagem obrigatória', path: ['garagemId'] });
     }
   });
 
@@ -52,38 +49,21 @@ function mapearCadastro(dados: DadosCadastro): {
   garagemId: string | null;
 } {
   if (dados.tipo === 'GERENCIA') {
-    return {
-      role: Role.GERENCIA,
-      setor: null,
-      especialidade: null,
-      garagemId: dados.garagemId ?? null,
-    };
+    return { role: Role.GERENCIA, setor: null, especialidade: null, garagemId: dados.garagemId ?? null };
   }
 
   const setor = dados.setor!;
   if (setor === 'APONTADOR') {
-    return {
-      role: Role.ADMINISTRADOR,
-      setor: null,
-      especialidade: 'Apontador',
-      garagemId: dados.garagemId ?? null,
-    };
+    return { role: Role.ADMINISTRADOR, setor: null, especialidade: 'Apontador', garagemId: dados.garagemId ?? null };
   }
   if (setor === 'ESTOQUE') {
-    return {
-      role: Role.ESTOQUE,
-      setor: null,
-      especialidade: 'Estoque',
-      garagemId: dados.garagemId ?? null,
-    };
+    return { role: Role.ESTOQUE, setor: null, especialidade: 'Estoque', garagemId: dados.garagemId ?? null };
   }
   if (setor === 'CONTROLER') {
-    return {
-      role: Role.PROFISSIONAL,
-      setor: null,
-      especialidade: 'Controler',
-      garagemId: dados.garagemId ?? null,
-    };
+    return { role: Role.PROFISSIONAL, setor: null, especialidade: 'Controler', garagemId: dados.garagemId ?? null };
+  }
+  if (setor === 'ENCARREGADO') {
+    return { role: Role.PROFISSIONAL, setor: null, especialidade: 'ENCARREGADO', garagemId: dados.garagemId ?? null };
   }
 
   return {
@@ -96,20 +76,12 @@ function mapearCadastro(dados: DadosCadastro): {
 
 async function criarUsuarioCadastro(req: AuthRequest, dados: DadosCadastro) {
   if (dados.garagemId) {
-    const garagem = await prisma.garagem.findFirst({
-      where: { id: dados.garagemId, ativo: true },
-    });
-    if (!garagem) {
-      return { status: 400 as const, body: { error: 'Garagem inválida' } };
-    }
+    const garagem = await prisma.garagem.findFirst({ where: { id: dados.garagemId, ativo: true } });
+    if (!garagem) return { status: 400 as const, body: { error: 'Garagem inválida' } };
   }
 
-  const matriculaExistente = await prisma.usuario.findUnique({
-    where: { matricula: dados.matricula },
-  });
-  if (matriculaExistente) {
-    return { status: 409 as const, body: { error: 'Matrícula já cadastrada' } };
-  }
+  const matriculaExistente = await prisma.usuario.findUnique({ where: { matricula: dados.matricula } });
+  if (matriculaExistente) return { status: 409 as const, body: { error: 'Matrícula já cadastrada' } };
 
   const senhaHash = await bcrypt.hash(dados.senha, 10);
   const perfil = mapearCadastro(dados);
@@ -125,29 +97,17 @@ async function criarUsuarioCadastro(req: AuthRequest, dados: DadosCadastro) {
       garagemId: perfil.garagemId,
     },
     select: {
-      id: true,
-      nome: true,
-      matricula: true,
-      role: true,
-      setor: true,
-      especialidade: true,
-      garagemId: true,
+      id: true, nome: true, matricula: true, role: true, setor: true, especialidade: true, garagemId: true,
       garagem: { select: { id: true, nome: true, estado: true } },
     },
   });
 
   await auditLog(req, 'AUTO_CADASTRO', 'Usuario', usuario.id, {
-    matricula: dados.matricula,
-    tipo: dados.tipo,
-    setor: dados.setor,
-    role: perfil.role,
-    garagemId: dados.garagemId,
+    matricula: dados.matricula, tipo: dados.tipo, setor: dados.setor, role: perfil.role, garagemId: dados.garagemId,
   });
-
   return { status: 201 as const, body: usuario };
 }
 
-/** Auto-cadastro (público). */
 router.post('/cadastro', async (req: AuthRequest, res: Response) => {
   try {
     const dados = cadastroUsuarioSchema.parse(req.body);
@@ -163,13 +123,9 @@ router.post('/cadastro', async (req: AuthRequest, res: Response) => {
   }
 });
 
-/** @deprecated Use POST /cadastro — mantido por compatibilidade. */
 router.post('/profissionais', async (req: AuthRequest, res: Response) => {
   try {
-    const dados = cadastroUsuarioSchema.parse({
-      ...req.body,
-      tipo: 'PROFISSIONAL',
-    });
+    const dados = cadastroUsuarioSchema.parse({ ...req.body, tipo: 'PROFISSIONAL' });
     const resultado = await criarUsuarioCadastro(req, dados);
     return res.status(resultado.status).json(resultado.body);
   } catch (err) {
