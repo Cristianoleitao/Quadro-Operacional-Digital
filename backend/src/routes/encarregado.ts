@@ -9,7 +9,7 @@ import { encerrarPausaServico, minutosTrabalhadosServico } from '../lib/tempoSer
 import { isEncarregado } from '../lib/encarregado';
 
 const router = Router();
-const STATUS_ENCERRADO = [StatusServico.FINALIZADO, StatusServico.CONCLUIDO];
+const STATUS_ENCERRADO: StatusServico[] = [StatusServico.FINALIZADO, StatusServico.CONCLUIDO];
 
 const resumo = { select: { id: true, nome: true, matricula: true, setor: true } } as const;
 const include = {
