@@ -48,7 +48,7 @@ router.get('/meus', somenteEncarregado, async (req: AuthRequest, res: Response) 
   const lista = await prisma.servico.findMany({
     where: {
       status: { notIn: STATUS_ENCERRADO },
-      participantes: { none: { profissionalId: req.user!.id } },
+      // O ENCARREGADO deve enxergar todo serviço aberto da garagem, inclusive\n      // quando já existe profissional principal ou outro participante alocado.\n      // Excluímos somente os serviços em que o próprio encarregado já está ativo.\n      NOT: { participantes: { some: { profissionalId: req.user!.id, horaTermino: null } } },
       ...(u?.garagemId ? { veiculo: { garagemId: u.garagemId } } : {}),
     }, include, orderBy: [{ veiculo: { numero: 'asc' } }, { createdAt: 'asc' }],
   });
