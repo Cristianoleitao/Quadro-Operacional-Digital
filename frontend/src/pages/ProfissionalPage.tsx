@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { useGravadorAudio } from '../hooks/useGravadorAudio';
 import { InputLocalExternoServico } from '../components/InputLocalExternoServico';
 import { isControler } from '../lib/controler';
-import type { Servico } from '../types';
+import { SETOR_LABELS, type Servico, type Setor } from '../types';
 import { BadgeSetor } from '../components/BadgeSetor';
 import { HistoricoProfissionalPanel } from '../components/HistoricoProfissionalPanel';
 
@@ -171,6 +171,7 @@ export default function ProfissionalPage() {
 
   const ehSetorLimpeza = usuario?.setor === 'LIMP';
   const ehControler = isControler(usuario);
+  const ehEncarregado = usuario?.especialidade?.trim().toUpperCase() === 'ENCARREGADO';
 
   const marcarAguardandoPeca = async () => {
     if (!servicoEmExecucao || !aguardandoPeca.trim()) return;
@@ -342,6 +343,58 @@ export default function ProfissionalPage() {
   }, [disponiveis, servicosPorVeiculo, agora]);
 
   const gruposSecao = useMemo(() => {
+    if (ehEncarregado) {
+      const ordemSetores: Setor[] = [
+        'MEC',
+        'ELE',
+        'LANT',
+        'PINT',
+        'REFR',
+        'BORR',
+        'LIMP',
+        'OUTRO',
+        'APS',
+        'CGB',
+        'PENDENTE',
+      ];
+      const porSetor = new Map<Setor, Servico[]>();
+
+      for (const servico of servicosAba) {
+        const atual = porSetor.get(servico.setor) ?? [];
+        atual.push(servico);
+        porSetor.set(servico.setor, atual);
+      }
+
+      return ordemSetores
+        .filter((setor) => porSetor.has(setor))
+        .map((setor) => {
+          const itensOriginais = porSetor.get(setor) ?? [];
+          const itens =
+            aba === 'disponiveis'
+              ? ordenarCorretivaProfissional(
+                  itensOriginais,
+                  servicosPorVeiculo,
+                  prioridadeSaidaIds,
+                  agora,
+                )
+              : ordenarServicosPorPrioridadeSaida(
+                  itensOriginais,
+                  prioridadeSaidaIds,
+                  agora,
+                );
+
+          return {
+            secao: {
+              id: `setor-${setor}`,
+              titulo: `${SETOR_LABELS[setor]} (${itens.length})`,
+              headerClass: 'bg-slate-800 border border-slate-700',
+              headerTextClass: 'text-slate-100',
+            },
+            itens,
+          };
+        });
+    }
+
     return agruparPorSecao(servicosAba).map((grupo) => {
       if (grupo.secao.id !== 'corretiva') return grupo;
       const itens =
@@ -350,7 +403,14 @@ export default function ProfissionalPage() {
           : ordenarServicosPorPrioridadeSaida(grupo.itens, prioridadeSaidaIds, agora);
       return { ...grupo, itens };
     });
-  }, [servicosAba, prioridadeSaidaIds, agora, aba, servicosPorVeiculo]);
+  }, [
+    servicosAba,
+    prioridadeSaidaIds,
+    agora,
+    aba,
+    servicosPorVeiculo,
+    ehEncarregado,
+  ]);
 
   return (
     <div className="h-[100dvh] flex flex-col bg-slate-900 overflow-hidden">
