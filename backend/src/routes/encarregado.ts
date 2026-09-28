@@ -1,7 +1,7 @@
 import { NextFunction, Response, Router } from 'express';
 import { Role, StatusServico } from '@prisma/client';
 import { prisma } from '../lib/prisma';
-import { authMiddleware } from '../middleware/auth';
+import { optionalAuth } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { auditLog } from '../middleware/audit';
 import { broadcast } from '../lib/websocket';
@@ -24,11 +24,13 @@ const include = {
 
 function idParam(v: string | string[]) { return Array.isArray(v) ? v[0] : v; }
 
-router.use(authMiddleware);
+// Auth opcional: sem token (ex.: /motorista) ou usuário que não é encarregado
+// deve cair nas rotas públicas/padrão de servicos.ts — não responder 401 aqui.
+router.use(optionalAuth);
 router.use(async (req: AuthRequest, _res: Response, next: NextFunction) => {
-  if (req.user?.role !== Role.PROFISSIONAL) return next();
+  if (req.user?.role !== Role.PROFISSIONAL) return next('router');
   const u = await prisma.usuario.findUnique({ where: { id: req.user.id }, select: { especialidade: true } });
-  if (!isEncarregado(u)) return next();
+  if (!isEncarregado(u)) return next('router');
   (req as AuthRequest & { encarregado?: boolean }).encarregado = true;
   next();
 });

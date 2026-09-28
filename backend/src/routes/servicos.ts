@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { Setor, StatusServico, TipoChecklist } from '@prisma/client';
 import { Role } from '@prisma/client';
 import { prisma } from '../lib/prisma';
-import { authMiddleware, requireRole } from '../middleware/auth';
+import { authMiddleware, optionalAuth, requireRole } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { auditLog } from '../middleware/audit';
 import { broadcast } from '../lib/websocket';
@@ -418,7 +418,7 @@ router.get('/quadro', async (req, res: Response) => {
   );
 });
 
-router.post('/cadastro-rapido', async (req: AuthRequest, res: Response) => {
+router.post('/cadastro-rapido', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
     const parsed = cadastroRapidoSchema.parse(req.body);
     const { veiculoNumero, descricao, garagemId } = parsed;
