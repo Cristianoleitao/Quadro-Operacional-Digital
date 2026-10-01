@@ -732,6 +732,17 @@ router.post('/liberar-veiculo', optionalAuth, async (req: AuthRequest, res: Resp
       ? `Liberado pelo valista — ${descricao}`
       : 'Liberado pelo valista';
 
+    if (veiculo) {
+      const abertos = await prisma.servico.count({
+        where: { veiculoId: veiculo.id, status: { notIn: STATUS_FORA_DO_QUADRO } },
+      });
+      if (abertos > 0) {
+        return res.status(409).json({
+          error: 'Este veículo está no quadro com serviço e não pode ser liberado.',
+        });
+      }
+    }
+
     if (!veiculo) {
       veiculo = await prisma.veiculo.create({
         data: {
@@ -751,51 +762,19 @@ router.post('/liberar-veiculo', optionalAuth, async (req: AuthRequest, res: Resp
       });
     }
 
-    const servicos = await prisma.servico.findMany({
-      where: { veiculoId: veiculo.id, status: { notIn: STATUS_FORA_DO_QUADRO } },
+    await prisma.servico.create({
+      data: {
+        veiculoId: veiculo.id,
+        setor: Setor.VALA,
+        descricao: descricao || 'LIBERADO',
+        status: StatusServico.CONCLUIDO,
+        horaTermino: agora,
+        correcao: correcaoPadrao,
+        finalizadoPorId: req.user?.id,
+      },
     });
 
-    if (servicos.length > 0) {
-      await prisma.$transaction(
-        servicos.map((s) => {
-          const tempoTotalMin =
-            s.tempoTotalMin ??
-            minutosTrabalhadosServico(
-              {
-                horaInicio: s.horaInicio,
-                pausadoEm: s.pausadoEm,
-                minutosPausadosAcum: s.minutosPausadosAcum,
-              },
-              agora,
-            );
-
-          return prisma.servico.update({
-            where: { id: s.id },
-            data: {
-              status: StatusServico.CONCLUIDO,
-              horaTermino: agora,
-              tempoTotalMin,
-              correcao: s.correcao ?? correcaoPadrao,
-              finalizadoPorId: s.finalizadoPorId ?? req.user?.id,
-            },
-          });
-        }),
-      );
-    } else {
-      await prisma.servico.create({
-        data: {
-          veiculoId: veiculo.id,
-          setor: Setor.VALA,
-          descricao: descricao || 'LIBERADO',
-          status: StatusServico.CONCLUIDO,
-          horaTermino: agora,
-          correcao: correcaoPadrao,
-          finalizadoPorId: req.user?.id,
-        },
-      });
-    }
-
-    const concluidos = servicos.length > 0 ? servicos.length : 1;
+    const concluidos = 1;
     await auditLog(req, 'LIBERAR_VEICULO', 'Veiculo', veiculo.id, {
       veiculoNumero: numeroNormalizado,
       origem: 'VALISTA',
