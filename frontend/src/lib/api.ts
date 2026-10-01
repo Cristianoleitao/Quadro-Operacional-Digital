@@ -187,6 +187,54 @@ export const api = {
   }) =>
     request<{ servico: Servico }>('/servicos/cadastro-rapido', { method: 'POST', body: JSON.stringify(data) }),
 
+  getPainelExibicao: (garagemId?: string) => {
+    const qs = garagemId ? `?garagemId=${encodeURIComponent(garagemId)}` : '';
+    return request<{
+      liberados: Array<{
+        veiculoId: string;
+        numero: string;
+        descricao: string | null;
+        horaSaida: string | null;
+      }>;
+      teste: Array<{
+        veiculoId: string;
+        numero: string;
+        descricao: string | null;
+        servicos: Array<{
+          descricao: string | null;
+          setor: string;
+          status: string;
+          desde: string;
+          profissional: string | null;
+        }>;
+      }>;
+      manutencao: Array<{
+        veiculoId: string;
+        numero: string;
+        descricao: string | null;
+        servicos: Array<{
+          descricao: string | null;
+          setor: string;
+          status: string;
+          desde: string;
+          profissional: string | null;
+        }>;
+      }>;
+    }>(`/servicos/painel-exibicao${qs}`);
+  },
+
+  liberarVeiculoValista: (data: { veiculoNumero: string; garagemId: string; descricao?: string }) =>
+    request<{ ok: boolean; concluidos: number; veiculoNumero: string }>('/servicos/liberar-veiculo', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  marcarTesteValista: (data: { veiculoNumero: string; garagemId: string; descricao?: string }) =>
+    request<{ ok: boolean; atualizados: number; veiculoNumero: string }>('/servicos/marcar-teste', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
   cadastroRevisao: (data: {
     veiculoNumero: string;
     tipo: 'REVISAO_PREVENTIVA' | 'CHECKLIST_15000';
@@ -218,6 +266,12 @@ export const api = {
 
   liberarServico: (id: string) =>
     request<Servico>(`/servicos/${id}/liberar`, { method: 'POST' }),
+
+  solicitarTeste: (id: string, data: { descricao: string; correcao: string }) =>
+    request<Servico>(`/servicos/${id}/solicitar-teste`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
   pausarServico: (id: string) =>
     request<Servico>(`/servicos/${id}/pausar`, { method: 'POST' }),
@@ -258,6 +312,12 @@ export const api = {
         ...(opts?.descricaoPeca ? { descricaoPeca: opts.descricaoPeca } : {}),
         ...(opts?.servicoId ? { servicoId: opts.servicoId } : {}),
       }),
+    }),
+
+  resultadoTesteAdmin: (id: string, resultado: 'APROVADO' | 'REPROVADO') =>
+    request<Servico>(`/servicos/${id}/resultado-teste`, {
+      method: 'POST',
+      body: JSON.stringify({ resultado }),
     }),
 
   finalizarVeiculoAdmin: (veiculoId: string) =>

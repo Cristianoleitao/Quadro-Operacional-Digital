@@ -30,6 +30,18 @@ export function HeaderPublico() {
             Motorista
           </Link>
           <Link
+            to="/valista"
+            className="rounded-lg border border-amber-500/50 bg-amber-700 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-amber-600"
+          >
+            Valista
+          </Link>
+          <Link
+            to="/exibicao"
+            className="rounded-lg border border-orange-500/50 bg-orange-700 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-orange-600"
+          >
+            QUADRO DO
+          </Link>
+          <Link
             to="/cadastro"
             className="rounded-lg border border-emerald-500/50 bg-emerald-700 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-emerald-600"
           >

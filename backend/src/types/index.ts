@@ -24,6 +24,7 @@ export const SETOR_LABELS: Record<Setor, string> = {
   PENDENTE: 'A definir',
   APS: 'Revisão Anápolis',
   CGB: 'Revisão Cuiabá',
+  VALA: 'Valista',
 };
 
 export const SETOR_PREFIX: Record<Setor, string> = {
@@ -38,6 +39,7 @@ export const SETOR_PREFIX: Record<Setor, string> = {
   PENDENTE: '[MOT]',
   APS: '[APS]',
   CGB: '[CGB]',
+  VALA: '[VALA]',
 };
 
 export const STATUS_LABELS: Record<string, string> = {

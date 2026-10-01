@@ -13,6 +13,7 @@ export const SETOR_QUADRO: Record<Setor, string> = {
   PENDENTE: 'MOT',
   APS: 'APS',
   CGB: 'CGB',
+  VALA: 'VALA',
 };
 
 export interface SecaoQuadro {

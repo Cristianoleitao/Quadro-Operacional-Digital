@@ -755,6 +755,7 @@ export default function AdminPage() {
   const { usuario, logout } = useAuth();
   const [servicos, setServicos] = useState<Servico[]>([]);
   const [expandido, setExpandido] = useState<string | null>(null);
+  const [acaoTeste, setAcaoTeste] = useState<string | null>(null);
   const [veiculoSelecionado, setVeiculoSelecionado] = useState<string | null>(null);
   const [alterandoStatus, setAlterandoStatus] = useState<string | null>(null);
   const [acaoVeiculo, setAcaoVeiculo] = useState<string | null>(null);
@@ -875,6 +876,19 @@ export default function AdminPage() {
       descricaoPecaInput.trim().toUpperCase(),
       servicoAguardandoPecaId,
     );
+  };
+
+  const executarResultadoTeste = async (servicoId: string, resultado: 'APROVADO' | 'REPROVADO') => {
+    setAcaoTeste(servicoId);
+    try {
+      await api.resultadoTesteAdmin(servicoId, resultado);
+      setMensagem(resultado === 'APROVADO' ? 'Teste aprovado e serviço encerrado.' : 'Teste reprovado. Serviço voltou para a corretiva.');
+      await carregar();
+    } catch (err) {
+      setMensagem(err instanceof Error ? err.message : 'Erro ao registrar o resultado do teste');
+    } finally {
+      setAcaoTeste(null);
+    }
   };
 
   const executarFinalizacao = async (grupo: GrupoVeiculoAdmin) => {
@@ -1223,12 +1237,18 @@ export default function AdminPage() {
                               }`}
                             >
                               <p className="font-semibold text-white mb-3 flex flex-wrap items-center gap-2">
-                                <SelectSetorServico
-                                  servicoId={s.id}
-                                  setor={s.setor}
-                                  onAtualizado={carregar}
-                                  disabled={s.status === 'FINALIZADO' || s.status === 'CONCLUIDO'}
-                                />
+                                {s.status === 'SERVICO_DEMORADO' ? (
+                                  <span className={`font-semibold uppercase tracking-wide ${SETOR_CORES[s.setor].badge}`}>
+                                    {SETOR_PREFIX[s.setor]}
+                                  </span>
+                                ) : (
+                                  <SelectSetorServico
+                                    servicoId={s.id}
+                                    setor={s.setor}
+                                    onAtualizado={carregar}
+                                    disabled={s.status === 'FINALIZADO' || s.status === 'CONCLUIDO'}
+                                  />
+                                )}
                                 <span>— {s.descricao}</span>
                                 {s.status === 'FINALIZADO' && (
                                   <span className="ml-2 text-xs font-semibold text-green-300 uppercase">
@@ -1236,6 +1256,26 @@ export default function AdminPage() {
                                   </span>
                                 )}
                               </p>
+                              {s.status === 'SERVICO_DEMORADO' ? (
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={acaoTeste === s.id}
+                                    onClick={() => void executarResultadoTeste(s.id, 'APROVADO')}
+                                    className="rounded bg-green-600 px-4 py-2 text-sm font-bold text-white hover:bg-green-500 disabled:opacity-50"
+                                  >
+                                    APROVADO
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={acaoTeste === s.id}
+                                    onClick={() => void executarResultadoTeste(s.id, 'REPROVADO')}
+                                    className="rounded bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-500 disabled:opacity-50"
+                                  >
+                                    REPROVADO
+                                  </button>
+                                </div>
+                              ) : (
                               <div className="grid grid-cols-2 gap-4 text-sm">
                                 <div>
                                   <strong>Profissional:</strong>{' '}
@@ -1292,6 +1332,7 @@ export default function AdminPage() {
                                   </div>
                                 )}
                               </div>
+                              )}
                             </div>
                           ))}
                         </div>

@@ -388,4 +388,37 @@ export async function anexarHoraSaidaVeiculos<
 
 }
 
+let cacheConsultaSaida: { em: number; chave: string; mapa: Map<string, Date> } | null = null;
+
+/** Horários da página externa (ou do mock, enquanto a página não existe) para os números pedidos. */
+export async function consultarHorariosSaida(numeros: string[]): Promise<Map<string, Date>> {
+  const pedidos = [...new Set(numeros.map(normalizarNumeroVeiculo))].filter(Boolean).sort();
+  if (pedidos.length === 0) return new Map();
+
+  const chave = pedidos.join(',');
+  const intervalo = Number(process.env.SAIDA_VEICULOS_SYNC_INTERVAL_MS || 60_000);
+  if (
+    cacheConsultaSaida &&
+    cacheConsultaSaida.chave === chave &&
+    Date.now() - cacheConsultaSaida.em < intervalo
+  ) {
+    return cacheConsultaSaida.mapa;
+  }
+
+  const url = process.env.SAIDA_VEICULOS_URL?.trim();
+  const usarMock =
+    process.env.SAIDA_VEICULOS_MOCK === 'true' || process.env.SAIDA_VEICULOS_MOCK === '1' || !url;
+
+  let mapa: Map<string, Date>;
+  try {
+    mapa = usarMock ? await carregarMock(pedidos) : await carregarHorariosDoSite(url, pedidos);
+  } catch (err) {
+    console.warn('[saida-veiculos] Falha ao consultar escala dos liberados, tentando mock:', err);
+    mapa = await carregarMock(pedidos);
+  }
+
+  cacheConsultaSaida = { em: Date.now(), chave, mapa };
+  return mapa;
+}
+
 

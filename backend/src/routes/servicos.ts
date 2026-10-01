@@ -7,7 +7,9 @@ import { authMiddleware, optionalAuth, requireRole } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { auditLog } from '../middleware/audit';
 import { broadcast } from '../lib/websocket';
-import { garantirSaidasAtualizadas, anexarHoraSaidaVeiculos } from '../lib/saidaVeiculos';
+import { garantirSaidasAtualizadas, anexarHoraSaidaVeiculos, consultarHorariosSaida } from '../lib/saidaVeiculos';
+import { liberadoPassouHorarioSaida } from '../lib/liberadoEscala';
+import { normalizarNumeroVeiculo } from '../lib/saidaVeiculosParse';
 import { enriquecerVeiculosLista } from '../lib/veiculoEnriquecimento';
 import { isControler } from '../lib/controler';
 import { encerrarPausaServico, minutosTrabalhadosServico } from '../lib/tempoServico';
@@ -418,6 +420,157 @@ router.get('/quadro', async (req, res: Response) => {
   );
 });
 
+function inicioDoDiaBrasil(ref = new Date()): Date {
+  const dia = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(ref);
+  return new Date(`${dia}T00:00:00-03:00`);
+}
+
+function servicoEhTeste(s: { status: StatusServico; descricao: string | null }): boolean {
+  if (s.status === StatusServico.SERVICO_DEMORADO) return true;
+  return (s.descricao ?? '').toUpperCase().includes('TESTE');
+}
+
+function compararNumeroVeiculo(a: string, b: string): number {
+  return a.localeCompare(b, 'pt-BR', { numeric: true, sensitivity: 'base' });
+}
+
+router.get('/painel-exibicao', async (req, res: Response) => {
+  const garagemId = typeof req.query.garagemId === 'string' ? req.query.garagemId : undefined;
+  const filtroGaragem = garagemId ? { veiculo: { garagemId } } : {};
+
+  const abertos = await prisma.servico.findMany({
+    where: {
+      status: { notIn: STATUS_FORA_DO_QUADRO },
+      ...filtroGaragem,
+    },
+    include: {
+      veiculo: { select: { id: true, numero: true } },
+      profissional: { select: { nome: true } },
+    },
+    orderBy: [{ createdAt: 'asc' }],
+  });
+
+  const porVeiculo = new Map<
+    string,
+    {
+      numero: string;
+      descricao: string | null;
+      teste: boolean;
+      servicos: Array<{
+        descricao: string | null;
+        setor: string;
+        status: string;
+        desde: string;
+        profissional: string | null;
+      }>;
+    }
+  >();
+
+  for (const s of abertos) {
+    const resumo = {
+      descricao: s.descricao,
+      setor: s.setor,
+      status: s.status,
+      desde: (s.horaInicio ?? s.createdAt).toISOString(),
+      profissional: s.profissional?.nome ?? null,
+    };
+    const atual = porVeiculo.get(s.veiculoId);
+    const teste = servicoEhTeste(s);
+    if (!atual) {
+      porVeiculo.set(s.veiculoId, {
+        numero: s.veiculo.numero,
+        descricao: s.descricao,
+        teste,
+        servicos: [resumo],
+      });
+      continue;
+    }
+    atual.servicos.push(resumo);
+    if (teste) {
+      atual.teste = true;
+      atual.descricao = s.descricao;
+    }
+  }
+
+  const teste: Array<{
+    veiculoId: string;
+    numero: string;
+    descricao: string | null;
+    servicos: Array<{
+      descricao: string | null;
+      setor: string;
+      status: string;
+      desde: string;
+      profissional: string | null;
+    }>;
+  }> = [];
+  const manutencao: typeof teste = [];
+
+  for (const [veiculoId, item] of porVeiculo) {
+    const row = {
+      veiculoId,
+      numero: item.numero,
+      descricao: item.descricao,
+      servicos: item.servicos,
+    };
+    if (item.teste) teste.push(row);
+    else manutencao.push(row);
+  }
+
+  teste.sort((a, b) => compararNumeroVeiculo(a.numero, b.numero));
+  manutencao.sort((a, b) => compararNumeroVeiculo(a.numero, b.numero));
+
+  const idsNoQuadro = [...porVeiculo.keys()];
+  const encerradosHoje = await prisma.servico.findMany({
+    where: {
+      status: { in: STATUS_FORA_DO_QUADRO },
+      horaTermino: { gte: inicioDoDiaBrasil() },
+      ...(garagemId ? { veiculo: { garagemId } } : {}),
+      ...(idsNoQuadro.length > 0 ? { veiculoId: { notIn: idsNoQuadro } } : {}),
+    },
+    select: {
+      veiculoId: true,
+      descricao: true,
+      horaTermino: true,
+      veiculo: { select: { numero: true } },
+    },
+    orderBy: { horaTermino: 'desc' },
+  });
+
+  const liberadosPorVeiculo = new Map<
+    string,
+    { veiculoId: string; numero: string; descricao: string | null }
+  >();
+  for (const s of encerradosHoje) {
+    if (!liberadosPorVeiculo.has(s.veiculoId)) {
+      liberadosPorVeiculo.set(s.veiculoId, {
+        veiculoId: s.veiculoId,
+        numero: s.veiculo.numero,
+        descricao: s.descricao,
+      });
+    }
+  }
+
+  const liberadosOrdenados = [...liberadosPorVeiculo.values()].sort((a, b) =>
+    compararNumeroVeiculo(a.numero, b.numero),
+  );
+
+  const agora = new Date();
+  const horariosSaida = await consultarHorariosSaida(liberadosOrdenados.map((item) => item.numero));
+  const liberados = liberadosOrdenados.flatMap((item) => {
+    const horaSaida = horariosSaida.get(normalizarNumeroVeiculo(item.numero)) ?? null;
+    if (horaSaida && liberadoPassouHorarioSaida(horaSaida, agora)) return [];
+    return [{ ...item, horaSaida: horaSaida ? horaSaida.toISOString() : null }];
+  });
+
+  res.json({ liberados, teste, manutencao });
+});
+
 router.post('/cadastro-rapido', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
     const parsed = cadastroRapidoSchema.parse(req.body);
@@ -536,6 +689,184 @@ router.post('/cadastro-rapido', optionalAuth, async (req: AuthRequest, res: Resp
     broadcast('quadro:update', null);
 
     res.status(201).json({ servico });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Dados inválidos', details: err.errors });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+const liberarVeiculoSchema = z.object({
+  veiculoNumero: z.string().min(1).transform((s) => s.trim().toUpperCase()),
+  garagemId: z.string().uuid().optional(),
+  descricao: z
+    .string()
+    .optional()
+    .transform((s) => (s ?? '').trim().toUpperCase()),
+});
+
+router.post('/liberar-veiculo', optionalAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { veiculoNumero, garagemId, descricao } = liberarVeiculoSchema.parse(req.body);
+    const numeroNormalizado = veiculoNumero.trim().toUpperCase();
+
+    if (garagemId) {
+      const garagem = await prisma.garagem.findFirst({
+        where: { id: garagemId, ativo: true },
+      });
+      if (!garagem) {
+        return res.status(400).json({ error: 'Garagem inválida' });
+      }
+    }
+
+    let veiculo =
+      (await prisma.veiculo.findUnique({ where: { numero: numeroNormalizado } })) ??
+      (await prisma.veiculo.findFirst({
+        where: { numero: { equals: numeroNormalizado, mode: 'insensitive' } },
+      }));
+
+    const agora = new Date();
+    const correcaoPadrao = descricao
+      ? `Liberado pelo valista — ${descricao}`
+      : 'Liberado pelo valista';
+
+    if (!veiculo) {
+      veiculo = await prisma.veiculo.create({
+        data: {
+          numero: numeroNormalizado,
+          dataEntrada: agora,
+          garagemId: garagemId ?? null,
+          fechadoAdmin: true,
+        },
+      });
+    } else {
+      veiculo = await prisma.veiculo.update({
+        where: { id: veiculo.id },
+        data: {
+          fechadoAdmin: true,
+          ...(garagemId ? { garagemId } : {}),
+        },
+      });
+    }
+
+    const servicos = await prisma.servico.findMany({
+      where: { veiculoId: veiculo.id, status: { notIn: STATUS_FORA_DO_QUADRO } },
+    });
+
+    if (servicos.length > 0) {
+      await prisma.$transaction(
+        servicos.map((s) => {
+          const tempoTotalMin =
+            s.tempoTotalMin ??
+            minutosTrabalhadosServico(
+              {
+                horaInicio: s.horaInicio,
+                pausadoEm: s.pausadoEm,
+                minutosPausadosAcum: s.minutosPausadosAcum,
+              },
+              agora,
+            );
+
+          return prisma.servico.update({
+            where: { id: s.id },
+            data: {
+              status: StatusServico.CONCLUIDO,
+              horaTermino: agora,
+              tempoTotalMin,
+              correcao: s.correcao ?? correcaoPadrao,
+              finalizadoPorId: s.finalizadoPorId ?? req.user?.id,
+            },
+          });
+        }),
+      );
+    } else {
+      await prisma.servico.create({
+        data: {
+          veiculoId: veiculo.id,
+          setor: Setor.VALA,
+          descricao: descricao || 'LIBERADO',
+          status: StatusServico.CONCLUIDO,
+          horaTermino: agora,
+          correcao: correcaoPadrao,
+          finalizadoPorId: req.user?.id,
+        },
+      });
+    }
+
+    const concluidos = servicos.length > 0 ? servicos.length : 1;
+    await auditLog(req, 'LIBERAR_VEICULO', 'Veiculo', veiculo.id, {
+      veiculoNumero: numeroNormalizado,
+      origem: 'VALISTA',
+      servicosConcluidos: concluidos,
+    });
+    broadcast('quadro:update', null);
+    res.json({ ok: true, concluidos, veiculoNumero: numeroNormalizado });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Dados inválidos', details: err.errors });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+router.post('/marcar-teste', optionalAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { veiculoNumero, garagemId, descricao } = liberarVeiculoSchema.parse(req.body);
+    const numeroNormalizado = veiculoNumero.trim().toUpperCase();
+
+    if (garagemId) {
+      const garagem = await prisma.garagem.findFirst({
+        where: { id: garagemId, ativo: true },
+      });
+      if (!garagem) {
+        return res.status(400).json({ error: 'Garagem inválida' });
+      }
+    }
+
+    const veiculo =
+      (await prisma.veiculo.findUnique({ where: { numero: numeroNormalizado } })) ??
+      (await prisma.veiculo.findFirst({
+        where: { numero: { equals: numeroNormalizado, mode: 'insensitive' } },
+      }));
+
+    if (!veiculo) {
+      return res.status(404).json({ error: 'Veículo não encontrado no quadro' });
+    }
+
+    const servicos = await prisma.servico.findMany({
+      where: { veiculoId: veiculo.id, status: { notIn: STATUS_FORA_DO_QUADRO } },
+    });
+
+    if (servicos.length === 0) {
+      return res.status(400).json({ error: 'Veículo não está em manutenção para ir a teste' });
+    }
+
+    const descricaoTeste = descricao || 'TESTE';
+
+    await prisma.$transaction(
+      servicos.map((s) =>
+        prisma.servico.update({
+          where: { id: s.id },
+          data: {
+            ...dadosAtualizacaoStatus(StatusServico.SERVICO_DEMORADO, s),
+            descricao: s.descricao?.toUpperCase().includes('TESTE')
+              ? s.descricao
+              : descricaoTeste,
+          },
+        }),
+      ),
+    );
+
+    await auditLog(req, 'MARCAR_TESTE', 'Veiculo', veiculo.id, {
+      veiculoNumero: numeroNormalizado,
+      origem: 'VALISTA',
+      servicos: servicos.length,
+    });
+    broadcast('quadro:update', null);
+    res.json({ ok: true, atualizados: servicos.length, veiculoNumero: numeroNormalizado });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ error: 'Dados inválidos', details: err.errors });
@@ -1622,6 +1953,100 @@ router.post('/:id/despausar', requireRole(Role.PROFISSIONAL), async (req: AuthRe
   res.json(updated);
 });
 
+const solicitarTesteSchema = z.object({
+  descricao: z
+    .string()
+    .trim()
+    .min(1, 'Informe as informações do teste')
+    .max(300)
+    .transform((s) => s.toUpperCase()),
+  correcao: z
+    .string()
+    .trim()
+    .min(1, 'Informe a correção executada')
+    .transform((s) => s.toUpperCase()),
+});
+
+function descricaoDoTeste(texto: string): string {
+  return texto.includes('TESTE') ? texto : `TESTE: ${texto}`;
+}
+
+router.post('/:id/solicitar-teste', requireRole(Role.PROFISSIONAL), async (req: AuthRequest, res: Response) => {
+  try {
+    const { descricao, correcao } = solicitarTesteSchema.parse(req.body);
+    const servico = await prisma.servico.findUnique({
+      where: { id: paramId(req.params.id) },
+    });
+    if (!servico) return res.status(404).json({ error: 'Serviço não encontrado' });
+    if (STATUS_FORA_DO_QUADRO.includes(servico.status)) {
+      return res.status(400).json({ error: 'Serviço já encerrado' });
+    }
+    if (isMultiParticipante(servico)) {
+      return res.status(400).json({ error: 'Conclua a sua parte nesta revisão' });
+    }
+    if (servico.profissionalId !== req.user!.id) {
+      return res.status(403).json({ error: 'Serviço não está em sua execução' });
+    }
+    if (servico.pausadoEm) {
+      return res.status(400).json({ error: 'Retome o serviço antes de solicitar teste' });
+    }
+
+    const agora = new Date();
+    const fimPausa = encerrarPausaServico(servico, agora);
+    const tempoTotalMin = minutosTrabalhadosServico(
+      {
+        horaInicio: servico.horaInicio,
+        pausadoEm: null,
+        minutosPausadosAcum: fimPausa.minutosPausadosAcum,
+      },
+      agora,
+    );
+
+    const textoTeste = descricaoDoTeste(descricao);
+    const [, teste] = await prisma.$transaction([
+      prisma.servico.update({
+        where: { id: servico.id },
+        data: {
+          status: StatusServico.FINALIZADO,
+          correcao,
+          horaTermino: agora,
+          tempoTotalMin,
+          pausadoEm: null,
+          minutosPausadosAcum: fimPausa.minutosPausadosAcum,
+          finalizadoPorId: req.user!.id,
+          profissionalId: null,
+          horaAssumido: null,
+          horaInicio: null,
+        },
+      }),
+      prisma.servico.create({
+        data: {
+          veiculoId: servico.veiculoId,
+          setor: servico.setor,
+          descricao: textoTeste,
+          status: StatusServico.SERVICO_DEMORADO,
+          numeroOs: servico.numeroOs,
+          ordemServicoId: servico.ordemServicoId,
+        },
+        include: servicoInclude,
+      }),
+    ]);
+
+    await auditLog(req, 'SOLICITAR_TESTE', 'Servico', teste.id, {
+      servicoEncerradoId: servico.id,
+      descricao: textoTeste,
+    });
+    broadcast('quadro:update', null);
+    res.json(teste);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: err.errors[0]?.message ?? 'Dados inválidos' });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
 const obsParticipanteSchema = z.object({
   obs: z
     .string()
@@ -1835,6 +2260,72 @@ router.patch('/:id/status', requireRole(Role.ADMINISTRADOR), async (req: AuthReq
     res.status(500).json({ error: 'Erro interno' });
   }
 });
+
+const resultadoTesteSchema = z.object({
+  resultado: z.enum(['APROVADO', 'REPROVADO']),
+});
+
+function descricaoReprovada(descricao: string): string {
+  const texto = descricao.trim();
+  if (texto.toUpperCase().includes('( REPROVADO)')) return texto;
+  return `${texto} ( REPROVADO)`;
+}
+
+router.post(
+  '/:id/resultado-teste',
+  requireRole(Role.ADMINISTRADOR),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { resultado } = resultadoTesteSchema.parse(req.body);
+      const id = paramId(req.params.id);
+      const servico = await prisma.servico.findUnique({ where: { id } });
+      if (!servico) return res.status(404).json({ error: 'Serviço não encontrado' });
+      if (servico.status !== StatusServico.SERVICO_DEMORADO) {
+        return res.status(400).json({ error: 'Só serviços em teste podem ser aprovados ou reprovados' });
+      }
+
+      const agora = new Date();
+      const updated =
+        resultado === 'APROVADO'
+          ? await prisma.servico.update({
+              where: { id },
+              data: {
+                status: StatusServico.CONCLUIDO,
+                horaTermino: servico.horaTermino ?? agora,
+                finalizadoPorId: servico.finalizadoPorId ?? req.user!.id,
+                profissionalId: null,
+                horaAssumido: null,
+                pausadoEm: null,
+              },
+              include: servicoInclude,
+            })
+          : await prisma.servico.update({
+              where: { id },
+              data: {
+                status: StatusServico.EM_EXECUCAO,
+                descricao: descricaoReprovada(servico.descricao),
+                profissionalId: null,
+                horaAssumido: null,
+                horaInicio: null,
+                horaTermino: null,
+                pausadoEm: null,
+                minutosPausadosAcum: 0,
+              },
+              include: servicoInclude,
+            });
+
+      await auditLog(req, 'RESULTADO_TESTE', 'Servico', id, { resultado });
+      broadcast('quadro:update', null);
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Dados inválidos' });
+      }
+      console.error(err);
+      res.status(500).json({ error: 'Erro interno' });
+    }
+  },
+);
 
 router.patch(
   '/:id/local-externo',

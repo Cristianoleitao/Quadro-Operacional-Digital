@@ -26,6 +26,7 @@ enum Setor {
   PENDENTE
   APS
   CGB
+  VALA
 }
 
 model Garagem {

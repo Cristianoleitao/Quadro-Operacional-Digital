@@ -93,6 +93,8 @@ export default function ProfissionalPage() {
   const [loading, setLoading] = useState(false);
   const [versaoLista, setVersaoLista] = useState(0);
   const [confirmarAcao, setConfirmarAcao] = useState<'sair' | 'pausar' | null>(null);
+  const [etapaEncerramento, setEtapaEncerramento] = useState<null | 'escolha' | 'teste'>(null);
+  const [infoTeste, setInfoTeste] = useState('');
   const gravador = useGravadorAudio();
 
   const carregar = useCallback(async () => {
@@ -131,8 +133,53 @@ export default function ProfissionalPage() {
     }
   };
 
+  const textoCorrecaoAtual = () => {
+    const texto = (correcao.trim() || gravador.getTexto().trim()).toUpperCase();
+    return texto;
+  };
+
+  const prepararEncerramento = () => {
+    if (gravador.gravando) return;
+    if (!servicoEmExecucao || !textoCorrecaoAtual()) {
+      alert('Informe a correção executada (fale no microfone ou digite no campo)');
+      return;
+    }
+    if (isMultiParticipante(servicoEmExecucao)) {
+      void finalizar();
+      return;
+    }
+    setEtapaEncerramento('escolha');
+  };
+
+  const solicitarTeste = async () => {
+    if (!servicoEmExecucao || !infoTeste.trim()) return;
+    const correcaoTexto = textoCorrecaoAtual();
+    if (!correcaoTexto) {
+      alert('Informe a correção executada (fale no microfone ou digite no campo)');
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.solicitarTeste(servicoEmExecucao.id, {
+        descricao: infoTeste.trim(),
+        correcao: correcaoTexto,
+      });
+      setInfoTeste('');
+      setEtapaEncerramento(null);
+      setSelecionado(null);
+      setCorrecao('');
+      gravador.limpar();
+      await carregar();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao solicitar teste');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const trocarAba = (novaAba: 'disponiveis' | 'execucao') => {
     setConfirmarAcao(null);
+    setEtapaEncerramento(null);
     setAba(novaAba);
     if (novaAba === 'execucao') {
       setSelecionado((atual) =>
@@ -146,6 +193,8 @@ export default function ProfissionalPage() {
   const selecionarServico = (s: Servico) => {
     if (aba === 'execucao') {
       setConfirmarAcao(null);
+      setEtapaEncerramento(null);
+      setInfoTeste('');
       setSelecionado(s);
     }
   };
@@ -299,6 +348,8 @@ export default function ProfissionalPage() {
       });
       setSelecionado(null);
       setCorrecao('');
+      setEtapaEncerramento(null);
+      setInfoTeste('');
       gravador.limpar();
       await carregar();
     } catch (err) {
@@ -355,6 +406,7 @@ export default function ProfissionalPage() {
         'OUTRO',
         'APS',
         'CGB',
+        'VALA',
         'PENDENTE',
       ];
       const porSetor = new Map<Setor, Servico[]>();
@@ -808,7 +860,7 @@ export default function ProfissionalPage() {
             className={`p-2 bg-slate-900 rounded border border-slate-700 ${servicoEmExecucao && servicoPausado(servicoEmExecucao) ? 'opacity-60 pointer-events-none' : ''}`}
             onSubmit={(e) => {
               e.preventDefault();
-              void finalizar();
+              prepararEncerramento();
             }}
           >
             <p className="text-slate-400 text-xs font-semibold mb-1">Correção executada</p>
@@ -838,7 +890,7 @@ export default function ProfissionalPage() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
-                  void finalizar();
+                  prepararEncerramento();
                 }
               }}
               readOnly={gravador.gravando}
@@ -855,19 +907,87 @@ export default function ProfissionalPage() {
                 Fale agora e toque em Parar — só então o texto entra no campo
               </p>
             )}
-            <button
-              type="submit"
-              disabled={
-                loading ||
-                gravador.gravando ||
-                !(correcao.trim() || gravador.texto.trim())
-              }
-              className="w-full mt-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-2 rounded text-sm"
-            >
-              {servicoEmExecucao && isMultiParticipante(servicoEmExecucao)
-                ? 'CONCLUIR MINHA PARTE'
-                : 'CONCLUIR SERVIÇO'}
-            </button>
+            {servicoEmExecucao && isMultiParticipante(servicoEmExecucao) ? (
+              <button
+                type="submit"
+                disabled={
+                  loading ||
+                  gravador.gravando ||
+                  !(correcao.trim() || gravador.texto.trim())
+                }
+                className="w-full mt-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-2 rounded text-sm"
+              >
+                CONCLUIR MINHA PARTE
+              </button>
+            ) : etapaEncerramento === null ? (
+              <button
+                type="submit"
+                disabled={
+                  loading ||
+                  gravador.gravando ||
+                  !(correcao.trim() || gravador.texto.trim())
+                }
+                className="w-full mt-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-2 rounded text-sm"
+              >
+                CONCLUIR SERVIÇO
+              </button>
+            ) : (
+              <div className="mt-2 space-y-2">
+                <p className="text-[11px] font-semibold text-slate-300">Como encerrar este serviço?</p>
+                {etapaEncerramento === 'escolha' && (
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => setEtapaEncerramento('teste')}
+                      className="flex-1 rounded bg-violet-700 px-2 py-2 text-xs font-bold text-white hover:bg-violet-600 disabled:opacity-50"
+                    >
+                      Solicitar teste
+                    </button>
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => void finalizar()}
+                      className="flex-1 rounded bg-green-600 px-2 py-2 text-xs font-bold text-white hover:bg-green-500 disabled:opacity-50"
+                    >
+                      Finalizar serviço
+                    </button>
+                  </div>
+                )}
+                {etapaEncerramento === 'teste' && (
+                  <div className="rounded-md border border-violet-700 bg-slate-950 p-2.5">
+                    <p className="text-[11px] font-semibold text-violet-200 mb-1">Informações do teste</p>
+                    <input
+                      value={infoTeste}
+                      onChange={(e) => setInfoTeste(e.target.value.toUpperCase())}
+                      placeholder="Descreva o teste..."
+                      autoFocus
+                      className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm uppercase"
+                    />
+                    <div className="mt-1.5 flex gap-1.5">
+                      <button
+                        type="button"
+                        disabled={loading || !infoTeste.trim()}
+                        onClick={() => void solicitarTeste()}
+                        className="flex-1 rounded bg-violet-700 px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-violet-600 disabled:opacity-50"
+                      >
+                        Enviar para teste
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEtapaEncerramento('escolha');
+                          setInfoTeste('');
+                        }}
+                        className="flex-1 rounded border border-slate-600 px-2 py-1.5 text-[11px] font-semibold text-slate-300 hover:bg-slate-800"
+                      >
+                        Voltar
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </form>
           </div>
         </div>
