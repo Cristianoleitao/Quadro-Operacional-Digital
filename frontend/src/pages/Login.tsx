@@ -8,7 +8,7 @@ export default function Login() {
   const [senha, setSenha] = useState('');
   const [erro, setErro] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, entrarComo, contas } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -20,6 +20,19 @@ export default function Login() {
     typeof (location.state as { aviso?: unknown }).aviso === 'string'
       ? (location.state as { aviso: string }).aviso
       : '';
+
+  const continuar = async (usuarioId: string, nome: string) => {
+    setErro('');
+    setLoading(true);
+    try {
+      await entrarComo(usuarioId);
+      navigate(redirect && redirect.startsWith('/') ? redirect : '/', { replace: true });
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : `Não foi possível entrar como ${nome}`);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,6 +99,32 @@ export default function Login() {
             >
               {loading ? 'Entrando...' : 'Entrar'}
             </button>
+
+            <p className="mt-4 text-xs text-slate-400">
+              Entrar com outra matrícula não encerra as contas já abertas em outras abas.
+            </p>
+
+            {contas.some((conta) => conta.role === 'PROFISSIONAL') && (
+              <div className="mt-4 border-t border-slate-700 pt-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Contas neste navegador
+                </p>
+                <div className="mt-2 space-y-2">
+                  {contas.filter((conta) => conta.role === 'PROFISSIONAL').map((conta) => (
+                    <button
+                      key={conta.id}
+                      type="button"
+                      disabled={loading}
+                      onClick={() => void continuar(conta.id, conta.nome)}
+                      className="flex w-full items-center justify-between rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-left text-sm text-white hover:border-blue-500 disabled:opacity-50"
+                    >
+                      <span className="font-semibold">{conta.nome}</span>
+                      <span className="font-mono text-xs text-slate-400">{conta.matricula}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </form>
         </div>
       </main>

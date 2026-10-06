@@ -118,7 +118,7 @@ export default function ValistaPage() {
           <div className="mb-5">
             <h2 className="text-xl font-bold text-white sm:text-2xl">Valista</h2>
             <p className="mt-1 text-sm text-slate-400">
-              Descreva o serviço e pressione Enter para o quadro da TV. Informe o número e toque em Liberado para o QUADRO DO.
+              Descreva o serviço e pressione Enter ou DAR NOTA para o quadro da TV. Informe o número e toque em Liberado para o QUADRO DO.
             </p>
           </div>
 
@@ -184,13 +184,23 @@ export default function ValistaPage() {
                 className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-4 py-3 text-base uppercase text-white focus:border-emerald-500 focus:outline-none"
               />
               <span className="mt-1 block text-xs text-slate-500">
-                {registrando ? 'Enviando ao quadro da TV...' : 'Enter envia o carro ao quadro da TV.'}
+                {registrando
+                  ? 'Enviando ao quadro da TV...'
+                  : 'Com a informação preenchida, Enter ou DAR NOTA envia o carro ao quadro da TV.'}
               </span>
             </label>
 
             <button
+              type="submit"
+              disabled={registrando || liberando || !descricao.trim()}
+              className="w-full rounded-lg bg-amber-500 py-3.5 text-base font-bold text-slate-950 transition hover:bg-amber-400 disabled:opacity-50"
+            >
+              {registrando ? 'Enviando...' : 'DAR NOTA'}
+            </button>
+
+            <button
               type="button"
-              disabled={registrando || liberando}
+              disabled={registrando || liberando || Boolean(descricao.trim())}
               onClick={() => void liberar()}
               className="w-full rounded-lg bg-emerald-600 py-3.5 text-base font-bold text-white transition hover:bg-emerald-500 disabled:opacity-50"
             >

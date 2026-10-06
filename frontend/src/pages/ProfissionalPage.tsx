@@ -9,6 +9,7 @@ import { InputLocalExternoServico } from '../components/InputLocalExternoServico
 import { isControler } from '../lib/controler';
 import { SETOR_LABELS, type Servico, type Setor } from '../types';
 import { BadgeSetor } from '../components/BadgeSetor';
+import { BotaoOutraConta } from '../components/BotaoOutraConta';
 import { HistoricoProfissionalPanel } from '../components/HistoricoProfissionalPanel';
 
 function BadgeSaidaServico({
@@ -489,6 +490,7 @@ export default function ProfissionalPage() {
         </div>
         <div className="flex gap-3">
           <Link to="/quadro" className="text-blue-400 text-sm">Quadro</Link>
+          <BotaoOutraConta />
           <button onClick={logout} className="text-red-400 text-sm">Sair</button>
         </div>
       </header>

@@ -4,6 +4,7 @@ import { api, connectWebSocket, type AuditoriaResponse, type DashboardGerencia, 
 import { useAuth } from '../context/AuthContext';
 import type { Garagem, HistoricoInsumo, Servico } from '../types';
 import { QuadroTabelaLeitura } from '../components/QuadroTabelaLeitura';
+import { BotaoOutraConta } from '../components/BotaoOutraConta';
 import { GerenciaGraficos } from '../components/GerenciaGraficos';
 import { SeletorLayoutGraficos } from '../components/gerencia/SeletorLayoutGraficos';
 import { GerenciaHistoricoDetalhado } from '../components/gerencia/GerenciaHistoricoDetalhado';
@@ -114,6 +115,7 @@ export default function GerenciaPage() {
           <Link to="/quadro" className="text-blue-400 hover:text-blue-300">
             Quadro TV
           </Link>
+          <BotaoOutraConta className="text-slate-300 hover:text-white" />
           <button type="button" onClick={logout} className="text-red-400 hover:text-red-300">
             Sair
           </button>

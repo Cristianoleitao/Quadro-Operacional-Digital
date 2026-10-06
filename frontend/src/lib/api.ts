@@ -1,5 +1,6 @@
 import type { Usuario, Servico, Veiculo, Garagem, HistoricoInsumo } from '../types';
 import { getApiBase, getWsUrl } from './config';
+import { tokenDaAba } from './sessoes';
 
 export { mediaUrl } from './config';
 
@@ -30,7 +31,7 @@ function qsHistoricoPeriodo(params?: ParamsHistoricoGerencia): URLSearchParams {
 const API_BASE = getApiBase();
 
 function getToken(): string | null {
-  return localStorage.getItem('token');
+  return tokenDaAba();
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {

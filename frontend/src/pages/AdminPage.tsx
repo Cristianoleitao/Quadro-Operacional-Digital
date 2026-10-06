@@ -25,6 +25,7 @@ import { InputProfissionalServico } from '../components/InputProfissionalServico
 import { classeNomeProfissionalServico, classeNomeSolicitantePeca, BadgesPreventivaQuadro } from '../components/BadgeSetor';
 import { InputLocalExternoServico } from '../components/InputLocalExternoServico';
 import { SelectSetorServico } from '../components/SelectSetorServico';
+import { BotaoOutraConta } from '../components/BotaoOutraConta';
 import { useAuth } from '../context/AuthContext';
 import type { Servico, Setor, StatusServico, Garagem } from '../types';
 import { SETOR_CORES, SETOR_PREFIX, STATUS_COLORS, STATUS_LABELS, STATUS_SECAO_ADMIN } from '../types';
@@ -993,6 +994,7 @@ export default function AdminPage() {
         </div>
         <div className="flex gap-4 items-center text-sm">
           <Link to="/quadro" className="text-blue-400 hover:text-blue-300">Quadro TV</Link>
+          <BotaoOutraConta className="text-slate-300 hover:text-white" />
           <button onClick={logout} className="text-red-400 hover:text-red-300">Sair</button>
         </div>
       </header>

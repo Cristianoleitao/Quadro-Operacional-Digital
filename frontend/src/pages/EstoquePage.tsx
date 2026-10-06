@@ -5,6 +5,7 @@ import { veiculoNumero, numeroOsExibicao, isMultiParticipante, textoPreventivaRe
 import { useAuth } from '../context/AuthContext';
 import type { Servico } from '../types';
 import { BadgeSetor } from '../components/BadgeSetor';
+import { BotaoOutraConta } from '../components/BotaoOutraConta';
 
 interface GrupoVeiculoEstoque {
   veiculoId: string;
@@ -77,6 +78,7 @@ export default function EstoquePage() {
         </div>
         <div className="flex gap-3">
           <Link to="/quadro" className="text-blue-400 text-sm">Quadro</Link>
+          <BotaoOutraConta />
           <button onClick={logout} className="text-red-400 text-sm">Sair</button>
         </div>
       </header>
