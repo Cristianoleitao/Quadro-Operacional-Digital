@@ -10,7 +10,7 @@ export interface Usuario { id: string; nome: string; matricula: string; role: Ro
 export interface Veiculo { id: string; numero: string; dataEntrada?: string | null; numeroOs?: string | null; garagemId?: string | null; garagem?: Garagem | null; horaSaida?: string | null; temServicoExecutado?: boolean; atendimentoIniciado?: boolean; }
 export interface OrdemServico { id: string; numero: number; veiculo: Veiculo; dataAbertura: string; dataFechamento?: string | null; }
 export interface ProfissionalResumo { id: string; nome: string; matricula: string; setor?: Setor | null; }
-export interface SolicitacaoInsumo { id: string; descricao: string; quantidade?: number; posicao?: string | null; atendido: boolean; aguardarPeca?: boolean; solicitadoPor?: ProfissionalResumo | null; createdAt: string; updatedAt?: string; }
+export interface SolicitacaoInsumo { id: string; descricao: string; quantidade?: number; posicao?: string | null; atendido: boolean; aguardarPeca?: boolean; foto?: string | null; solicitadoPor?: ProfissionalResumo | null; createdAt: string; updatedAt?: string; }
 export interface HistoricoInsumo extends SolicitacaoInsumo { servico: Servico; }
 export interface ServicoParticipante { id: string; profissionalId: string; profissional?: ProfissionalResumo | null; horaAssumido: string; horaInicio?: string | null; horaTermino?: string | null; pausadoEm?: string | null; minutosPausadosAcum?: number; obs?: string | null; correcao?: string | null; tempoTotalMin?: number | null; }
 export type TipoChecklist = 'REVISAO_PREVENTIVA' | 'CHECKLIST_15000';

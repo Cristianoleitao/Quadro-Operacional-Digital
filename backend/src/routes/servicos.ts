@@ -2451,11 +2451,16 @@ const insumoSchema = z.object({
     .refine((s) => !s || /^[A-Z0-9]{1,10}$/.test(s), {
       message: 'Posição inválida (use códigos como TD, TE, TDT)',
     }),
+  foto: z
+    .string()
+    .trim()
+    .optional()
+    .refine((s) => !s || s.startsWith('/uploads/'), { message: 'Foto inválida' }),
 });
 
 router.post('/:id/insumos', requireRole(Role.PROFISSIONAL), async (req: AuthRequest, res: Response) => {
   try {
-    const { descricao, alterarStatus, quantidade, posicao } = insumoSchema.parse(req.body);
+    const { descricao, alterarStatus, quantidade, posicao, foto } = insumoSchema.parse(req.body);
     const servicoId = paramId(req.params.id);
 
     const servico = await prisma.servico.findUnique({
@@ -2490,6 +2495,7 @@ router.post('/:id/insumos', requireRole(Role.PROFISSIONAL), async (req: AuthRequ
         aguardarPeca: alterarStatus,
         quantidade: alterarStatus ? 1 : quantidade,
         posicao: alterarStatus ? null : posicao || null,
+        foto: foto || null,
         solicitadoPorId: req.user!.id,
       },
       include: {

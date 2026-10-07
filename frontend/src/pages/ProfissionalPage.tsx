@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { api, connectWebSocket } from '../lib/api';
 import { veiculoNumero, numeroOsExibicao, formatInsumoCodigo, servicoPausado, isMultiParticipante, textoPreventivaRev, itensChecklistDoSetor } from '../lib/servico';
@@ -88,6 +88,10 @@ export default function ProfissionalPage() {
 
   const [correcao, setCorrecao] = useState('');
   const [aguardandoPeca, setAguardandoPeca] = useState('');
+  const [fotoPeca, setFotoPeca] = useState<File | null>(null);
+  const [fotoPecaPreview, setFotoPecaPreview] = useState<string | null>(null);
+  const cameraPecaRef = useRef<HTMLInputElement>(null);
+  const arquivoPecaRef = useRef<HTMLInputElement>(null);
   const [insumoCodigo, setInsumoCodigo] = useState('');
   const [insumoQtd, setInsumoQtd] = useState('1');
   const [insumoPosicao, setInsumoPosicao] = useState('');
@@ -223,13 +227,34 @@ export default function ProfissionalPage() {
   const ehControler = isControler(usuario);
   const ehEncarregado = usuario?.especialidade?.trim().toUpperCase() === 'ENCARREGADO';
 
+  const escolherFotoPeca = (arquivo: File | null) => {
+    setFotoPecaPreview((atual) => {
+      if (atual) URL.revokeObjectURL(atual);
+      return arquivo ? URL.createObjectURL(arquivo) : null;
+    });
+    setFotoPeca(arquivo);
+  };
+
   const marcarAguardandoPeca = async () => {
     if (!servicoEmExecucao || !aguardandoPeca.trim()) return;
     const preventiva = isMultiParticipante(servicoEmExecucao);
     setLoading(true);
     try {
-      await api.solicitarInsumo(servicoEmExecucao.id, aguardandoPeca.trim().toUpperCase(), true);
+      let foto: string | undefined;
+      if (fotoPeca) {
+        const enviada = await api.uploadFoto(fotoPeca);
+        foto = enviada.url;
+      }
+      await api.solicitarInsumo(
+        servicoEmExecucao.id,
+        aguardandoPeca.trim().toUpperCase(),
+        true,
+        1,
+        undefined,
+        foto,
+      );
       setAguardandoPeca('');
+      escolherFotoPeca(null);
       if (preventiva) {
         // Permanece na preventiva; peça vai ao estoque sem mudar status
         await carregar();
@@ -809,6 +834,62 @@ export default function ProfissionalPage() {
                 Confirmar
               </button>
             </form>
+            <div className="mt-2 flex gap-1.5">
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => cameraPecaRef.current?.click()}
+                className="flex-1 rounded bg-slate-700 px-2 py-1.5 text-xs font-semibold text-white hover:bg-slate-600 disabled:opacity-50"
+              >
+                Tirar foto
+              </button>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => arquivoPecaRef.current?.click()}
+                className="flex-1 rounded bg-slate-700 px-2 py-1.5 text-xs font-semibold text-white hover:bg-slate-600 disabled:opacity-50"
+              >
+                Adicionar foto
+              </button>
+              <input
+                ref={cameraPecaRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => {
+                  escolherFotoPeca(e.target.files?.[0] ?? null);
+                  e.target.value = '';
+                }}
+              />
+              <input
+                ref={arquivoPecaRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  escolherFotoPeca(e.target.files?.[0] ?? null);
+                  e.target.value = '';
+                }}
+              />
+            </div>
+            {fotoPecaPreview && (
+              <div className="mt-2 flex items-center gap-2">
+                <img
+                  src={fotoPecaPreview}
+                  alt="Foto da peça"
+                  className="h-16 w-16 rounded object-cover"
+                />
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => escolherFotoPeca(null)}
+                  className="text-xs font-semibold text-red-300 hover:text-red-200"
+                >
+                  Remover foto
+                </button>
+              </div>
+            )}
           </div>
           )}
 

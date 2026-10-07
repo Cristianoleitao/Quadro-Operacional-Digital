@@ -196,6 +196,7 @@ model SolicitacaoInsumo {
   posicao    String?
   atendido  Boolean  @default(false)
   aguardarPeca Boolean @default(false)
+  foto      String?
   solicitadoPorId String?
   solicitadoPor   Usuario? @relation("InsumoSolicitadoPor", fields: [solicitadoPorId], references: [id])
   createdAt DateTime @default(now())

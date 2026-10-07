@@ -337,6 +337,7 @@ export const api = {
     alterarStatus = false,
     quantidade = 1,
     posicao?: string,
+    foto?: string,
   ) =>
     request(`/servicos/${id}/insumos`, {
       method: 'POST',
@@ -345,6 +346,7 @@ export const api = {
         alterarStatus,
         quantidade,
         ...(posicao?.trim() ? { posicao: posicao.trim().toUpperCase() } : {}),
+        ...(foto ? { foto } : {}),
       }),
     }),
 

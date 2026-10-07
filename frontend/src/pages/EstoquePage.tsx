@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { api, connectWebSocket } from '../lib/api';
+import { api, connectWebSocket, mediaUrl } from '../lib/api';
 import { veiculoNumero, numeroOsExibicao, isMultiParticipante, textoPreventivaRev } from '../lib/servico';
 import { useAuth } from '../context/AuthContext';
 import type { Servico } from '../types';
@@ -39,6 +39,16 @@ export default function EstoquePage() {
   const [servicos, setServicos] = useState<Servico[]>([]);
   const [loading, setLoading] = useState(false);
   const [atendendo, setAtendendo] = useState<string | null>(null);
+  const [fotoAmpliada, setFotoAmpliada] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!fotoAmpliada) return;
+    const fechar = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFotoAmpliada(null);
+    };
+    window.addEventListener('keydown', fechar);
+    return () => window.removeEventListener('keydown', fechar);
+  }, [fotoAmpliada]);
 
   const carregar = useCallback(async () => {
     const lista = await api.getServicosEstoque();
@@ -145,9 +155,25 @@ export default function EstoquePage() {
                               key={i.id}
                               className="flex items-center justify-between gap-3 bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2"
                             >
-                              <span className="text-white text-sm font-medium uppercase break-words">
-                                {i.descricao}
-                              </span>
+                              <div className="flex min-w-0 items-center gap-3">
+                                {i.foto && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setFotoAmpliada(i.foto!)}
+                                    className="shrink-0 rounded focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                                    aria-label="Ampliar foto da peça"
+                                  >
+                                    <img
+                                      src={mediaUrl(i.foto)}
+                                      alt="Foto da peça"
+                                      className="h-14 w-14 rounded object-cover"
+                                    />
+                                  </button>
+                                )}
+                                <span className="text-white text-sm font-medium uppercase break-words">
+                                  {i.descricao}
+                                </span>
+                              </div>
                               <button
                                 type="button"
                                 onClick={() => atenderPeca(i.id)}
@@ -169,6 +195,27 @@ export default function EstoquePage() {
           );
         })}
       </div>
+
+      {fotoAmpliada && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setFotoAmpliada(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setFotoAmpliada(null)}
+            className="absolute right-4 top-4 rounded bg-slate-800 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-700"
+          >
+            Fechar
+          </button>
+          <img
+            src={mediaUrl(fotoAmpliada)}
+            alt="Foto da peça ampliada"
+            className="max-h-[90vh] max-w-[92vw] rounded-lg object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }
